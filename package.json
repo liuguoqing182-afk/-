@@ -1,0 +1,19 @@
+{
+  "name": "am-config-inspector",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:declaration": "node src/check-declaration-consistency.mjs",
+    "check:urls": "node src/check-resource-urls.mjs",
+    "diff:dev-pro": "node src/diff-dev-pro.mjs",
+    "diff:pro": "node src/diff-pro-release.mjs",
+    "standardize": "node src/standardize-config.mjs",
+    "listen:feishu": "node src/feishu-listener.mjs",
+    "poll:feishu-history": "node src/feishu-history-poller.mjs",
+    "serve:webhook": "node src/webhook-server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.71.1"
+  }
+}

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Runtime state, screenshots, reports, and generated artifacts
+data/
+data-test/
+data-webhook/
+data-app-screenshot/
+midscene_run/
+*.log
+
+# Pre-Git manual snapshots; Git history replaces these going forward
+backups/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local binaries and editor/OS files
+tools/*.exe
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
