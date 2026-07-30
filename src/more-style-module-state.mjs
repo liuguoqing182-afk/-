@@ -70,10 +70,17 @@ function selectedTabState(nodes, label, position) {
       candidate.labelLines.includes(label) &&
       candidate.labelLines.includes(position),
   );
+  const [x1, y1, x2, y2] = node?.bounds ?? [];
   return {
     visible: Boolean(node),
     selected: Boolean(node?.selected),
     bounds: node?.bounds ?? null,
+    tapTarget: node?.bounds
+      ? {
+          x: Math.round((x1 + x2) / 2),
+          y: Math.round((y1 + y2) / 2),
+        }
+      : null,
   };
 }
 

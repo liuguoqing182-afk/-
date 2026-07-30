@@ -73,6 +73,33 @@ export function exactPageTextVisible(hierarchy, expectedText, options) {
   );
 }
 
+export function uniqueExactPageTextTapTarget(
+  hierarchy,
+  expectedText,
+  options = {},
+) {
+  const expected = normalizePageText(expectedText);
+  if (!expected) return null;
+
+  const maximumHeight = options.maximumHeight ?? 180;
+  const matchingBounds = new Map();
+  for (const entry of visiblePageEntries(hierarchy, options)) {
+    if (normalizePageText(entry.text) !== expected) continue;
+    const [x1, y1, x2, y2] = entry.bounds;
+    if (y2 - y1 > maximumHeight) continue;
+    matchingBounds.set(entry.bounds.join(','), entry.bounds);
+  }
+  if (matchingBounds.size !== 1) return null;
+
+  const bounds = [...matchingBounds.values()][0];
+  const [x1, y1, x2, y2] = bounds;
+  return {
+    x: Math.round((x1 + x2) / 2),
+    y: Math.round((y1 + y2) / 2),
+    bounds,
+  };
+}
+
 function positiveInteger(value, fallback, label) {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved < 1) {

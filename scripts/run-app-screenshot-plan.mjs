@@ -50,11 +50,16 @@ import {
   pageTextContentSignature,
   pageTextSignature,
   scanScrollablePage,
+  uniqueExactPageTextTapTarget,
   visiblePageText,
 } from '../src/scrollable-page-scanner.mjs';
 import {
   inspectMoreStyleModuleHierarchy,
 } from '../src/more-style-module-state.mjs';
+import {
+  isMoreStyleTagFlow,
+  moreStyleModelEvidenceComplete,
+} from '../src/more-style-safe-speed-policy.mjs';
 import {
   TAG_HOME_ACTIONS,
   TAG_HOME_RECOVERY_TIMEOUT_MS,
@@ -608,6 +613,7 @@ async function observeTagModelScreen(
   context,
   location,
   visionCache,
+  knownModelNames = [],
 ) {
   const hierarchy = await readPageHierarchy(context.deviceId);
   const hierarchySignature = pageTextSignature(hierarchy);
@@ -620,10 +626,22 @@ async function observeTagModelScreen(
   let visionError = null;
   let visionRawResponse = null;
   let visionReused = false;
+  let visionSkippedReason = null;
   const cachedVision = hierarchySignature
     ? visionCache.get(hierarchySignature)
     : null;
-  if (cachedVision) {
+  if (
+    moreStyleModelEvidenceComplete(
+      task,
+      knownModelNames,
+      xmlMatchedModelNames,
+    )
+  ) {
+    visionSkippedReason = 'MORE_STYLE_CONTROL_TREE_EVIDENCE_COMPLETE';
+    log(
+      `TAG_MODEL_TREE_COMPLETE ${task.module} | ${task.objectName} | skip-ai`,
+    );
+  } else if (cachedVision) {
     visionModelNames = cachedVision.visionModelNames;
     visionError = cachedVision.visionError;
     visionRawResponse = cachedVision.visionRawResponse;
@@ -676,6 +694,7 @@ async function observeTagModelScreen(
     visionError,
     visionRawResponse,
     visionReused,
+    visionSkippedReason,
   };
 }
 
@@ -719,6 +738,7 @@ async function scanTagModelNamesFull(task, context, options = {}) {
       visionError: observation.visionError,
       visionRawResponse: observation.visionRawResponse,
       visionReused: observation.visionReused,
+      visionSkippedReason: observation.visionSkippedReason,
     });
     if (context.recordTagScanProgress) {
       await context.recordTagScanProgress({
@@ -757,6 +777,7 @@ async function scanTagModelNamesFull(task, context, options = {}) {
         context,
         { roundTrip: 1, ...location },
         visionCache,
+        [...actualNamesByNormalized.values()],
       ),
     swipeForward: () => tagVerticalSwipe(context.deviceId),
     swipeBackward: () => tagReverseVerticalSwipe(context.deviceId),
@@ -902,6 +923,7 @@ async function scanTagModelNamesFirstEight(task, context) {
       context,
       location,
       visionCache,
+      [...actualNamesByNormalized.values()],
     );
     const newActualModelNames = collectFirstEight(
       observation.actualModelNames,
@@ -913,6 +935,7 @@ async function scanTagModelNamesFirstEight(task, context) {
       xmlMatchedModelNames: observation.xmlMatchedModelNames,
       visionError: observation.visionError,
       visionRawResponse: observation.visionRawResponse,
+      visionSkippedReason: observation.visionSkippedReason,
       newActualModelNames,
     });
     log(
@@ -947,6 +970,7 @@ async function scanTagModelNamesFirstEight(task, context) {
       context,
       location,
       visionCache,
+      [...actualNamesByNormalized.values()],
     );
     const signature = String(observation.signature ?? '');
     matchingReturnReadCount =
@@ -967,6 +991,7 @@ async function scanTagModelNamesFirstEight(task, context) {
       xmlMatchedModelNames: observation.xmlMatchedModelNames,
       visionError: observation.visionError,
       visionRawResponse: observation.visionRawResponse,
+      visionSkippedReason: observation.visionSkippedReason,
       matchingReturnReadCount,
       newActualModelNames: [],
     });
@@ -1541,13 +1566,159 @@ async function assertTagModuleVisible(deviceId, flow) {
   return hierarchy;
 }
 
-async function openTag(agent, deviceId, objectName, beforeHierarchy) {
-  const beforeSignature = pageTextSignature(beforeHierarchy);
-  await tagAiTap(
-    agent,
-    `Tap the exact section title "${objectName}" that is currently visible. Do not tap a model card.`,
+async function waitForHierarchyCondition(
+  deviceId,
+  timeoutMs,
+  condition,
+  label,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastHierarchy = '';
+  while (Date.now() < deadline) {
+    try {
+      lastHierarchy = await readPageHierarchy(deviceId, { deadline });
+      if (condition(lastHierarchy)) {
+        log(`MORE_STYLE_WAIT_READY ${label}`);
+        return lastHierarchy;
+      }
+    } catch (error) {
+      if (Date.now() >= deadline) break;
+      log(
+        `MORE_STYLE_WAIT_READ_RETRY ${label} | ${error?.message || String(error)}`,
+      );
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    await sleep(Math.min(250, remainingMs));
+  }
+  log(`MORE_STYLE_WAIT_FALLBACK ${label} | max=${timeoutMs}ms`);
+  return null;
+}
+
+function moreStyleEffectsReady(hierarchy, flow) {
+  const state = inspectMoreStyleModuleHierarchy(hierarchy, flow);
+  return state.effectsTab.selected && state.topTab.visible;
+}
+
+function moreStyleModuleReady(hierarchy, flow) {
+  return inspectMoreStyleModuleHierarchy(hierarchy, flow).stable;
+}
+
+async function tryDeterministicMoreStyleTab(
+  deviceId,
+  flow,
+  tabKey,
+  timeoutMs,
+) {
+  let hierarchy;
+  try {
+    hierarchy = await readPageHierarchy(deviceId, {
+      deadline: Date.now() + timeoutMs,
+    });
+  } catch (error) {
+    log(
+      `MORE_STYLE_TREE_TAP_UNAVAILABLE ${tabKey} | ${error?.message || String(error)}`,
+    );
+    return false;
+  }
+  const state = inspectMoreStyleModuleHierarchy(hierarchy, flow);
+  const ready =
+    tabKey === 'effects'
+      ? moreStyleEffectsReady(hierarchy, flow)
+      : moreStyleModuleReady(hierarchy, flow);
+  if (ready) {
+    log(`MORE_STYLE_TREE_TAP_SKIPPED ${tabKey} | already-ready`);
+    return true;
+  }
+
+  const target =
+    tabKey === 'effects'
+      ? state.effectsTab.tapTarget
+      : state.topTab.tapTarget;
+  if (!target) {
+    log(`MORE_STYLE_TREE_TAP_UNAVAILABLE ${tabKey} | no-unique-target`);
+    return false;
+  }
+  adbTap(deviceId, target);
+  log(
+    `MORE_STYLE_TREE_TAP ${tabKey} | (${target.x},${target.y})`,
   );
-  await sleep(4_000);
+  const confirmed = await waitForHierarchyCondition(
+    deviceId,
+    timeoutMs,
+    (candidate) =>
+      tabKey === 'effects'
+        ? moreStyleEffectsReady(candidate, flow)
+        : moreStyleModuleReady(candidate, flow),
+    `${flow}:${tabKey}`,
+  );
+  return Boolean(confirmed);
+}
+
+function tagOpenGuardSatisfied(hierarchy, objectName, beforeSignature) {
+  return (
+    exactSectionTitleVisible(hierarchy, objectName) &&
+    Boolean(beforeSignature) &&
+    pageTextSignature(hierarchy) !== beforeSignature
+  );
+}
+
+async function openTag(agent, deviceId, task, beforeHierarchy) {
+  const { flow, objectName } = task;
+  const beforeSignature = pageTextSignature(beforeHierarchy);
+  if (isMoreStyleTagFlow(flow)) {
+    const target = uniqueExactPageTextTapTarget(
+      beforeHierarchy,
+      objectName,
+    );
+    let opened = false;
+    if (target) {
+      adbTap(deviceId, target);
+      log(
+        `MORE_STYLE_TREE_TAP tag-title="${objectName}" | (${target.x},${target.y})`,
+      );
+      opened = Boolean(
+        await waitForHierarchyCondition(
+          deviceId,
+          4_000,
+          (hierarchy) =>
+            tagOpenGuardSatisfied(
+              hierarchy,
+              objectName,
+              beforeSignature,
+            ),
+          `${flow}:tag-open:${objectName}`,
+        ),
+      );
+    } else {
+      log(
+        `MORE_STYLE_TREE_TAP_UNAVAILABLE tag-title="${objectName}" | fallback=ai`,
+      );
+    }
+    if (!opened) {
+      await tagAiTap(
+        agent,
+        `Tap the exact section title "${objectName}" that is currently visible. Do not tap a model card.`,
+      );
+      await waitForHierarchyCondition(
+        deviceId,
+        4_000,
+        (hierarchy) =>
+          tagOpenGuardSatisfied(
+            hierarchy,
+            objectName,
+            beforeSignature,
+          ),
+        `${flow}:tag-open-ai:${objectName}`,
+      );
+    }
+  } else {
+    await tagAiTap(
+      agent,
+      `Tap the exact section title "${objectName}" that is currently visible. Do not tap a model card.`,
+    );
+    await sleep(4_000);
+  }
   await waitForTagLoadedImages(agent, TAG_HOME_RECOVERY_TIMEOUT_MS);
 
   const afterHierarchy = await readPageHierarchy(deviceId);
@@ -1566,24 +1737,51 @@ async function openTag(agent, deviceId, objectName, beforeHierarchy) {
   return afterHierarchy;
 }
 
-async function enterTagModule(agent, flow) {
+async function enterTagModule(agent, deviceId, flow) {
   if (flow !== 'VIDEO_TAG' && flow !== 'FILTER_TAG') return;
   const tabName = flow === 'VIDEO_TAG' ? 'Video' : 'Filter';
-  await tagAiTap(
-    agent,
-    'Tap Effects in the AIMirror bottom navigation. Do not open a content card.',
+  const effectsReady = await tryDeterministicMoreStyleTab(
+    deviceId,
+    flow,
+    'effects',
+    2_500,
   );
-  await sleep(2_500);
-  await tagAiTap(
-    agent,
-    `Tap the "${tabName}" tab at the top of the Effects page. Stop on the section list and do not open a content card.`,
+  if (!effectsReady) {
+    await tagAiTap(
+      agent,
+      'Tap Effects in the AIMirror bottom navigation. Do not open a content card.',
+    );
+    await waitForHierarchyCondition(
+      deviceId,
+      2_500,
+      (hierarchy) => moreStyleEffectsReady(hierarchy, flow),
+      `${flow}:effects-ai`,
+    );
+  }
+
+  const moduleReady = await tryDeterministicMoreStyleTab(
+    deviceId,
+    flow,
+    'top-tab',
+    3_000,
   );
-  await sleep(3_000);
+  if (!moduleReady) {
+    await tagAiTap(
+      agent,
+      `Tap the "${tabName}" tab at the top of the Effects page. Stop on the section list and do not open a content card.`,
+    );
+    await waitForHierarchyCondition(
+      deviceId,
+      3_000,
+      (hierarchy) => moreStyleModuleReady(hierarchy, flow),
+      `${flow}:top-tab-ai`,
+    );
+  }
 }
 
 async function runRegularTag(task, context) {
   const { agent, deviceId, captureCheckpoint } = context;
-  await enterTagModule(agent, task.flow);
+  await enterTagModule(agent, deviceId, task.flow);
   await assertTagModuleVisible(deviceId, task.flow);
 
   const tagLocation = await findTagWithoutOpening(agent, deviceId, task);
@@ -1592,7 +1790,7 @@ async function runRegularTag(task, context) {
   await openTag(
     agent,
     deviceId,
-    task.objectName,
+    task,
     tagLocation.lastObservation.hierarchy,
   );
   await captureCheckpoint(2);

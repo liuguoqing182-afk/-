@@ -27,6 +27,8 @@ test('confirms More Style Video only when Effects and Video are selected', () =>
   );
   assert.equal(state.effectsTab.selected, true);
   assert.equal(state.topTab.selected, true);
+  assert.deepEqual(state.effectsTab.tapTarget, { x: 264, y: 2843 });
+  assert.deepEqual(state.topTab.tapTarget, { x: 710, y: 227 });
   assert.equal(state.stable, true);
 });
 

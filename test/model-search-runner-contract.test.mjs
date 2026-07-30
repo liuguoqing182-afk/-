@@ -67,9 +67,13 @@ test('model search never force-stops or restarts the App process', () => {
     'async function executeTask',
     'const args = parseArgs',
   );
+  const tagBranchStart = source.search(
+    /\r?\n\r?\n  if \(isTagFlow\(task\.flow\)\)/,
+  );
+  assert.notEqual(tagBranchStart, -1);
   const modelBranch = source.slice(
     source.indexOf("if (task.flow === 'MODEL_SEARCH')"),
-    source.indexOf('\n\n  if (isTagFlow(task.flow))'),
+    tagBranchStart,
   );
   assert.match(modelBranch, /return runModelSearch\(task, context\)/);
   assert.doesNotMatch(
@@ -241,6 +245,56 @@ test('tag AI actions are bounded, abortable, and use a strict image deadline', (
   assert.match(waitHelper, /Math\.min\(45_000/);
   assert.match(tagActions, /tagAiTap/);
   assert.match(tagActions, /waitForTagLoadedImages/);
+});
+
+test('More Style navigation is deterministic-first with the original AI fallback', () => {
+  const source = functionSource(
+    'async function enterTagModule',
+    'async function runRegularTag',
+  );
+  assert.match(source, /tryDeterministicMoreStyleTab/);
+  assert.match(source, /tagAiTap/);
+  assert.match(source, /waitForHierarchyCondition/);
+  assert.match(source, /2_500/);
+  assert.match(source, /3_000/);
+});
+
+test('More Style tree reads and title taps stay bounded with AI fallback', () => {
+  const deterministicSource = functionSource(
+    'async function tryDeterministicMoreStyleTab',
+    'function tagOpenGuardSatisfied',
+  );
+  assert.match(
+    deterministicSource,
+    /deadline: Date\.now\(\) \+ timeoutMs/,
+  );
+  assert.match(deterministicSource, /waitForHierarchyCondition/);
+
+  const openSource = functionSource(
+    'async function openTag',
+    'async function enterTagModule',
+  );
+  assert.match(openSource, /isMoreStyleTagFlow/);
+  assert.match(openSource, /uniqueExactPageTextTapTarget/);
+  assert.match(openSource, /adbTap/);
+  assert.match(openSource, /waitForHierarchyCondition/);
+  assert.match(openSource, /tagAiTap/);
+  assert.match(
+    openSource,
+    /else \{[\s\S]*?tagAiTap[\s\S]*?sleep\(4_000\)/,
+  );
+});
+
+test('More Style model reads skip AI only after exact present evidence is complete', () => {
+  const observationSource = functionSource(
+    'async function observeTagModelScreen',
+    'async function scanTagModelNamesFull',
+  );
+  assert.match(runner, /more-style-safe-speed-policy\.mjs/);
+  assert.match(observationSource, /moreStyleModelEvidenceComplete/);
+  assert.match(observationSource, /MORE_STYLE_CONTROL_TREE_EVIDENCE_COMPLETE/);
+  assert.match(observationSource, /else if \(cachedVision\)/);
+  assert.match(observationSource, /await aiQuery/);
 });
 
 

@@ -6,6 +6,7 @@ import {
   exactPageTextVisible,
   pageTextSignature,
   scanScrollablePage,
+  uniqueExactPageTextTapTarget,
   visiblePageText,
 } from '../src/scrollable-page-scanner.mjs';
 
@@ -20,6 +21,34 @@ test('extracts exact visible text and includes bounds in the page signature', ()
   assert.equal(exactPageTextVisible(first, ' trend   hub '), true);
   assert.equal(exactPageTextVisible(first, 'Trend'), false);
   assert.notEqual(pageTextSignature(first), pageTextSignature(moved));
+});
+
+test('returns one exact short text-node center as a safe tap target', () => {
+  const hierarchy = `<hierarchy>
+    <node text="Social Trend" content-desc="Social Trend" bounds="[24,620][310,700]" />
+  </hierarchy>`;
+
+  assert.deepEqual(
+    uniqueExactPageTextTapTarget(hierarchy, ' social   trend '),
+    {
+      x: 167,
+      y: 660,
+      bounds: [24, 620, 310, 700],
+    },
+  );
+});
+
+test('rejects ambiguous or card-sized text nodes for deterministic taps', () => {
+  const duplicate = `<hierarchy>
+    <node text="Studio" bounds="[20,400][200,480]" />
+    <node text="Studio" bounds="[20,900][200,980]" />
+  </hierarchy>`;
+  const cardSized = `<hierarchy>
+    <node text="Studio" bounds="[0,300][1440,900]" />
+  </hierarchy>`;
+
+  assert.equal(uniqueExactPageTextTapTarget(duplicate, 'Studio'), null);
+  assert.equal(uniqueExactPageTextTapTarget(cardSized, 'Studio'), null);
 });
 
 function createHarness({ initial, forward = [], backward = [] }) {
