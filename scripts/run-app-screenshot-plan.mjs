@@ -58,7 +58,7 @@ import {
 } from '../src/more-style-module-state.mjs';
 import {
   isMoreStyleTagFlow,
-  moreStyleModelEvidenceComplete,
+  tagModelTreeEvidenceComplete,
 } from '../src/more-style-safe-speed-policy.mjs';
 import {
   TAG_HOME_ACTIONS,
@@ -631,13 +631,16 @@ async function observeTagModelScreen(
     ? visionCache.get(hierarchySignature)
     : null;
   if (
-    moreStyleModelEvidenceComplete(
+    tagModelTreeEvidenceComplete(
       task,
       knownModelNames,
       xmlMatchedModelNames,
     )
   ) {
-    visionSkippedReason = 'MORE_STYLE_CONTROL_TREE_EVIDENCE_COMPLETE';
+    visionSkippedReason =
+      task.flow === 'HOME_TAG'
+        ? 'HOME_CONTROL_TREE_EVIDENCE_COMPLETE'
+        : 'MORE_STYLE_CONTROL_TREE_EVIDENCE_COMPLETE';
     log(
       `TAG_MODEL_TREE_COMPLETE ${task.module} | ${task.objectName} | skip-ai`,
     );

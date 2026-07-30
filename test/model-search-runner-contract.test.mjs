@@ -285,13 +285,14 @@ test('More Style tree reads and title taps stay bounded with AI fallback', () =>
   );
 });
 
-test('More Style model reads skip AI only after exact present evidence is complete', () => {
+test('tag model reads skip AI only after exact present evidence is complete', () => {
   const observationSource = functionSource(
     'async function observeTagModelScreen',
     'async function scanTagModelNamesFull',
   );
   assert.match(runner, /more-style-safe-speed-policy\.mjs/);
-  assert.match(observationSource, /moreStyleModelEvidenceComplete/);
+  assert.match(observationSource, /tagModelTreeEvidenceComplete/);
+  assert.match(observationSource, /HOME_CONTROL_TREE_EVIDENCE_COMPLETE/);
   assert.match(observationSource, /MORE_STYLE_CONTROL_TREE_EVIDENCE_COMPLETE/);
   assert.match(observationSource, /else if \(cachedVision\)/);
   assert.match(observationSource, /await aiQuery/);

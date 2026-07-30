@@ -4,12 +4,15 @@ export function isMoreStyleTagFlow(flow) {
   return flow === 'VIDEO_TAG' || flow === 'FILTER_TAG';
 }
 
-export function moreStyleModelEvidenceComplete(
+export function isTagModelTreeEvidenceFlow(flow) {
+  return flow === 'HOME_TAG' || isMoreStyleTagFlow(flow);
+}
+
+function allPresentModelEvidenceComplete(
   task,
   knownModelNames = [],
   currentControlTreeModelNames = [],
 ) {
-  if (!isMoreStyleTagFlow(task?.flow)) return false;
   const assertions = task?.modelAssertions ?? [];
   if (
     assertions.length === 0 ||
@@ -27,5 +30,31 @@ export function moreStyleModelEvidenceComplete(
   );
   return assertions.every((assertion) =>
     known.has(normalizeVisibleModelName(assertion.name)),
+  );
+}
+
+export function tagModelTreeEvidenceComplete(
+  task,
+  knownModelNames = [],
+  currentControlTreeModelNames = [],
+) {
+  if (!isTagModelTreeEvidenceFlow(task?.flow)) return false;
+  return allPresentModelEvidenceComplete(
+    task,
+    knownModelNames,
+    currentControlTreeModelNames,
+  );
+}
+
+export function moreStyleModelEvidenceComplete(
+  task,
+  knownModelNames = [],
+  currentControlTreeModelNames = [],
+) {
+  if (!isMoreStyleTagFlow(task?.flow)) return false;
+  return allPresentModelEvidenceComplete(
+    task,
+    knownModelNames,
+    currentControlTreeModelNames,
   );
 }
