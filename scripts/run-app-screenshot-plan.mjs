@@ -53,6 +53,9 @@ import {
   visiblePageText,
 } from '../src/scrollable-page-scanner.mjs';
 import {
+  inspectMoreStyleModuleHierarchy,
+} from '../src/more-style-module-state.mjs';
+import {
   TAG_HOME_ACTIONS,
   TAG_HOME_RECOVERY_TIMEOUT_MS,
   inspectTagHomeHierarchy,
@@ -1529,17 +1532,10 @@ async function assertTagModuleVisible(deviceId, flow) {
     return hierarchy;
   }
 
-  const expectedTab = flow === 'FILTER_TAG' ? 'Filter' : 'Video';
-  const contentMarkers =
-    flow === 'FILTER_TAG' ? ['painting', 'studio'] : ['seedance'];
-  const texts = visiblePageText(hierarchy).map(normalizeVisibleModelName);
-  const tabVisible = exactPageTextVisible(hierarchy, expectedTab);
-  const moduleContentVisible = contentMarkers.some((marker) =>
-    texts.some((value) => value.includes(marker)),
-  );
-  if (!tabVisible || !moduleContentVisible) {
+  const moduleState = inspectMoreStyleModuleHierarchy(hierarchy, flow);
+  if (!moduleState.stable) {
     throw new Error(
-      `tag module guard failed: expected ${flow} tab=${expectedTab}, visible markers=${JSON.stringify(texts.slice(0, 20))}`,
+      `tag module guard failed: expected ${flow}, effectsVisible=${moduleState.effectsTab.visible}, effectsSelected=${moduleState.effectsTab.selected}, ${moduleState.expectedTopTab}Visible=${moduleState.topTab.visible}, ${moduleState.expectedTopTab}Selected=${moduleState.topTab.selected}`,
     );
   }
   return hierarchy;

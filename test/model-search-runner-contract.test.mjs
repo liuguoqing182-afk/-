@@ -211,8 +211,12 @@ test('tag module and opened tag are guarded before model scanning', () => {
     'async function enterTagModule',
   );
   assert.match(moduleGuard, /inspectTagHomeHierarchy/);
-  assert.match(moduleGuard, /expectedTab/);
-  assert.match(moduleGuard, /moduleContentVisible/);
+  assert.match(moduleGuard, /inspectMoreStyleModuleHierarchy/);
+  assert.match(moduleGuard, /moduleState\.stable/);
+  assert.doesNotMatch(
+    moduleGuard,
+    /contentMarkers|seedance|painting|studio/,
+  );
   assert.match(openGuard, /exactSectionTitleVisible/);
   assert.match(openGuard, /pageChanged/);
 });
