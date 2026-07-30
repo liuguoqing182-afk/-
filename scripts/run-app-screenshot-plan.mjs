@@ -46,13 +46,16 @@ import {
 } from '../src/tag-model-name-parser.mjs';
 import {
   SCAN_TERMINATIONS,
-  exactPageTextVisible,
   pageTextContentSignature,
   pageTextSignature,
   scanScrollablePage,
   uniqueExactPageTextTapTarget,
   visiblePageText,
 } from '../src/scrollable-page-scanner.mjs';
+import {
+  exactTagTitleTextVisible,
+  tagTitleTextOnly,
+} from '../src/tag-title-text.mjs';
 import {
   inspectMoreStyleModuleHierarchy,
 } from '../src/more-style-module-state.mjs';
@@ -592,7 +595,7 @@ function tagScanSwipeLimit() {
 }
 
 function exactSectionTitleVisible(hierarchy, objectName) {
-  return exactPageTextVisible(hierarchy, objectName);
+  return exactTagTitleTextVisible(hierarchy, objectName);
 }
 
 function matchedExpectedModelNames(assertions, candidateNames) {
@@ -1668,6 +1671,7 @@ function tagOpenGuardSatisfied(hierarchy, objectName, beforeSignature) {
 
 async function openTag(agent, deviceId, task, beforeHierarchy) {
   const { flow, objectName } = task;
+  const visibleTitleText = tagTitleTextOnly(objectName) || objectName;
   const beforeSignature = pageTextSignature(beforeHierarchy);
   if (isMoreStyleTagFlow(flow)) {
     const target = uniqueExactPageTextTapTarget(
@@ -1701,7 +1705,7 @@ async function openTag(agent, deviceId, task, beforeHierarchy) {
     if (!opened) {
       await tagAiTap(
         agent,
-        `Tap the exact section title "${objectName}" that is currently visible. Do not tap a model card.`,
+        `Tap the exact section title "${visibleTitleText}" that is currently visible. Do not tap a model card.`,
       );
       await waitForHierarchyCondition(
         deviceId,
@@ -1718,7 +1722,7 @@ async function openTag(agent, deviceId, task, beforeHierarchy) {
   } else {
     await tagAiTap(
       agent,
-      `Tap the exact section title "${objectName}" that is currently visible. Do not tap a model card.`,
+      `Tap the exact section title "${visibleTitleText}" that is currently visible. Do not tap a model card.`,
     );
     await sleep(4_000);
   }

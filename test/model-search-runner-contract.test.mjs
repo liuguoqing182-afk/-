@@ -225,6 +225,21 @@ test('tag module and opened tag are guarded before model scanning', () => {
   assert.match(openGuard, /pageChanged/);
 });
 
+test('tag entry and AI clicks compare text without decorative emoji', () => {
+  const matchingSource = functionSource(
+    'function exactSectionTitleVisible',
+    'function matchedExpectedModelNames',
+  );
+  const openSource = functionSource(
+    'async function openTag',
+    'async function enterTagModule',
+  );
+  assert.match(runner, /tag-title-text\.mjs/);
+  assert.match(matchingSource, /exactTagTitleTextVisible/);
+  assert.match(openSource, /tagTitleTextOnly/);
+  assert.match(openSource, /visibleTitleText/);
+});
+
 
 test('tag AI actions are bounded, abortable, and use a strict image deadline', () => {
   const tapHelper = functionSource(

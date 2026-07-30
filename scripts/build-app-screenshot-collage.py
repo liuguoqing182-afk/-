@@ -465,7 +465,9 @@ def main():
         ],
         'bytes': output.stat().st_size,
     }
-    print(json.dumps(result, ensure_ascii=False))
+    # Keep machine-readable stdout ASCII-safe because Windows scheduled tasks
+    # can use GBK even when task names contain decorative emoji.
+    print(json.dumps(result, ensure_ascii=True))
 
 if __name__ == '__main__':
     main()

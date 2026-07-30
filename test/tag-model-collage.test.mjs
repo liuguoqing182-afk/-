@@ -39,7 +39,7 @@ test('renders expected, actual, found, and missing tag model names', async (t) =
       taskResults: [
         {
           module: '新首页配置',
-          objectName: 'Retro',
+          objectName: '🎬 Seedance 2.0',
           screenshotTotal: 1,
           executionState: 'SCREENSHOTS_CAPTURED',
           businessVerdict: 'FAIL',
@@ -94,7 +94,7 @@ test('renders expected, actual, found, and missing tag model names', async (t) =
             {
               sequence: 1,
               total: 1,
-              label: '新首页配置｜Retro｜1/1截图｜不通过',
+              label: '新首页配置｜🎬 Seedance 2.0｜1/1截图｜不通过',
               path: screenshotPath,
             },
           ],
@@ -113,11 +113,18 @@ test('renders expected, actual, found, and missing tag model names', async (t) =
       '--output',
       outputPath,
     ],
-    { encoding: 'utf8' },
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONIOENCODING: 'gbk' },
+    },
   );
   assert.equal(processResult.status, 0, processResult.stderr);
   const result = JSON.parse(processResult.stdout.trim());
   assert.equal(result.tagModelComparisons.length, 1);
+  assert.equal(
+    result.tagModelComparisons[0].objectName,
+    '🎬 Seedance 2.0',
+  );
   assert.deepEqual(result.tagModelComparisons[0].actualModelNames, [
     'Station Wanderer',
     'Existing Style',
