@@ -1,3 +1,7 @@
+import {
+  APP_SCREENSHOT_REPORT_TARGETS,
+  normalizeAppScreenshotReportTarget,
+} from './app-screenshot-report-target.mjs';
 import { MODEL_EXPECTED_STATES } from './model-search-verdict.mjs';
 
 const AUTOMATION_MODULES = [
@@ -152,6 +156,11 @@ export function planAppScreenshotTasks(parsed, context = {}) {
   if (!parsed.isPublishSuccess) {
     throw new Error('The notification is not an AIMirror publish-success message');
   }
+  const reportTarget = normalizeAppScreenshotReportTarget(
+    context.reportTarget,
+  );
+  const formalGroupOutputEnabled =
+    reportTarget === APP_SCREENSHOT_REPORT_TARGETS.FORMAL_GROUP;
 
   const declaredChanges = Array.isArray(parsed.declaredChanges)
     ? parsed.declaredChanges
@@ -317,8 +326,8 @@ export function planAppScreenshotTasks(parsed, context = {}) {
       imageLoadTimeoutMs: 120_000,
       retryMax: 2,
       attemptMax: 3,
-      reportTarget: 'TEST_GROUP_ONLY',
-      formalGroupOutputEnabled: false,
+      reportTarget,
+      formalGroupOutputEnabled,
     },
     automationModules,
     ignoredManualModules,

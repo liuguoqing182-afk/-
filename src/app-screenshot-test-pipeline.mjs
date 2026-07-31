@@ -4,6 +4,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { fetchHomeSnapshot } from './am-home-client.mjs';
+import {
+  isFormalAppScreenshotTarget,
+  normalizeAppScreenshotReportTarget,
+} from './app-screenshot-report-target.mjs';
 import { planAppScreenshotTasks } from './app-screenshot-task-planner.mjs';
 import { parsePublishNotification } from './message-parser.mjs';
 
@@ -114,9 +118,21 @@ async function androidVersionLabel(deviceId, packageName) {
 export class AppScreenshotTestPipeline {
   constructor(options = {}) {
     this.root = path.resolve(options.root ?? process.cwd());
+    this.reportTarget = normalizeAppScreenshotReportTarget(
+      options.reportTarget,
+    );
+    this.formalGroupOutputEnabled = isFormalAppScreenshotTarget(
+      this.reportTarget,
+    );
     this.releaseRoot = path.resolve(
       options.releaseRoot ??
-        path.join(this.root, 'data-app-screenshot', 'test-group-releases'),
+        path.join(
+          this.root,
+          'data-app-screenshot',
+          this.formalGroupOutputEnabled
+            ? 'formal-group-releases'
+            : 'test-group-releases',
+        ),
     );
     this.deviceId = String(
       options.deviceId ?? process.env.AM_DEVICE_ID ?? 'R38M805JQHM',
@@ -179,12 +195,17 @@ export class AppScreenshotTestPipeline {
     );
     const receiptPath = path.join(
       releaseDir,
-      'test-group-delivery-receipt.json',
+      this.formalGroupOutputEnabled
+        ? 'formal-group-delivery-receipt.json'
+        : 'test-group-delivery-receipt.json',
     );
 
     const updateStatus = async (state, extra = {}) => {
       await writeJsonAtomic(statusPath, {
-        pipelineType: 'AM_TEST_GROUP_APP_SCREENSHOT_PIPELINE_V1',
+        pipelineType: this.formalGroupOutputEnabled
+          ? 'AM_FORMAL_GROUP_APP_SCREENSHOT_PIPELINE_V1'
+          : 'AM_TEST_GROUP_APP_SCREENSHOT_PIPELINE_V1',
+        reportTarget: this.reportTarget,
         state,
         messageId,
         releaseDir,
@@ -227,6 +248,7 @@ export class AppScreenshotTestPipeline {
         messageId,
         notificationPath,
         targetSnapshot,
+        reportTarget: this.reportTarget,
       };
       const plan = planAppScreenshotTasks(parsed, planningContext);
       if (targetSnapshotWarning) {
@@ -323,6 +345,8 @@ export class AppScreenshotTestPipeline {
           receiptPath,
           '--root',
           this.root,
+          '--target',
+          this.reportTarget,
         ],
         {
           cwd: this.root,

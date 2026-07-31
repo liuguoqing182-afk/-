@@ -4,9 +4,11 @@ param()
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pollerPath = Join-Path $projectRoot 'src\feishu-app-screenshot-test-poller.mjs'
-$taskLogPath = Join-Path $projectRoot 'app-screenshot-test-poller-task.log'
-$stdoutPath = Join-Path $projectRoot 'app-screenshot-test-poller.stdout.log'
-$stderrPath = Join-Path $projectRoot 'app-screenshot-test-poller.stderr.log'
+$formalMode = $env:AM_APP_SCREENSHOT_REPORT_TARGET -eq 'FORMAL_GROUP'
+$logName = if ($formalMode) { 'formal' } else { 'test' }
+$taskLogPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller-task.log')
+$stdoutPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.stdout.log')
+$stderrPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.stderr.log')
 
 function Write-TaskLog([string]$Message) {
   $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -32,7 +34,15 @@ try {
     throw 'FEISHU_TEST_CHAT_ID must be different from FEISHU_CHAT_ID'
   }
   $env:AM_APP_SCREENSHOT_PROJECT_ROOT = $projectRoot
-  $env:AM_APP_SCREENSHOT_TEST_POLL_INTERVAL_MS = '10000'
+  if ([string]::IsNullOrWhiteSpace($env:AM_APP_SCREENSHOT_REPORT_TARGET)) {
+    $env:AM_APP_SCREENSHOT_REPORT_TARGET = 'TEST_GROUP_ONLY'
+  }
+  if ([string]::IsNullOrWhiteSpace($env:AM_APP_SCREENSHOT_POLL_INTERVAL_MS)) {
+    $env:AM_APP_SCREENSHOT_POLL_INTERVAL_MS = '10000'
+  }
+  if ([string]::IsNullOrWhiteSpace($env:AM_APP_SCREENSHOT_INITIAL_LOOKBACK_MS)) {
+    $env:AM_APP_SCREENSHOT_INITIAL_LOOKBACK_MS = '600000'
+  }
 
   $existing = Get-CimInstance Win32_Process -Filter "name = 'node.exe'" |
     Where-Object {

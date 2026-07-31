@@ -37,6 +37,10 @@ import {
   uniqueVisibleModelNames,
 } from '../src/tag-model-verdict.mjs';
 import {
+  APP_SCREENSHOT_REPORT_TARGETS,
+  normalizeAppScreenshotReportTarget,
+} from '../src/app-screenshot-report-target.mjs';
+import {
   TAG_BOUNDARY_MATCHING_SWIPE_READS,
   TAG_MODEL_QUICK_BACKWARD_SWIPES,
   TAG_MODEL_QUICK_FORWARD_SWIPES,
@@ -2173,11 +2177,17 @@ const deviceId = args['device-id'] || process.env.AM_DEVICE_ID || DEFAULT_DEVICE
 const packageName = args.package || process.env.AM_PACKAGE_NAME || DEFAULT_PACKAGE;
 
 const plan = JSON.parse(await fs.readFile(planPath, 'utf8'));
-if (plan.policy?.formalGroupOutputEnabled !== false) {
-  throw new Error('Screenshot plan must explicitly disable formal-group output');
-}
-if (plan.policy?.reportTarget !== 'TEST_GROUP_ONLY') {
-  throw new Error('Screenshot plan must target the test group only');
+const reportTarget = normalizeAppScreenshotReportTarget(
+  plan.policy?.reportTarget,
+);
+const formalGroupOutputEnabled =
+  reportTarget === APP_SCREENSHOT_REPORT_TARGETS.FORMAL_GROUP;
+if (
+  plan.policy?.formalGroupOutputEnabled !== formalGroupOutputEnabled
+) {
+  throw new Error(
+    'Screenshot plan report target does not match formal-group output policy',
+  );
 }
 
 await fs.mkdir(outputDir, { recursive: true });
@@ -2201,11 +2211,11 @@ const execution = {
   completedAt: null,
   deviceId,
   packageName,
-  formalGroupOutputEnabled: false,
-  formalGroupSendBlockedByUser: true,
+  formalGroupOutputEnabled,
+  formalGroupSendBlockedByUser: !formalGroupOutputEnabled,
   formalGroupSendRequiresExplicitUserConfirmation: true,
-  formalGroupSendConfirmed: false,
-  reportTarget: 'TEST_GROUP_ONLY',
+  formalGroupSendConfirmed: formalGroupOutputEnabled,
+  reportTarget,
   expectedTaskCount: plan.totals.taskCount,
   expectedScreenshotCount: plan.totals.screenshotCount,
   taskResults: [],

@@ -1,6 +1,10 @@
 ﻿import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  APP_SCREENSHOT_REPORT_TARGETS,
+  normalizeAppScreenshotReportTarget,
+} from '../src/app-screenshot-report-target.mjs';
 
 const TOKEN_URL = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal';
 const IMAGE_URL = 'https://open.feishu.cn/open-apis/im/v1/images';
@@ -115,6 +119,30 @@ const testChatId = requiredEnvironment('FEISHU_TEST_CHAT_ID');
 if (formalChatId === testChatId) {
   throw new Error('Refusing to send: formal and test chat IDs are identical');
 }
+const reportTarget = normalizeAppScreenshotReportTarget(args.target);
+const formalGroupOutputEnabled =
+  reportTarget === APP_SCREENSHOT_REPORT_TARGETS.FORMAL_GROUP;
+if (
+  formalGroupOutputEnabled &&
+  String(process.env.AM_APP_SCREENSHOT_FORMAL_SEND_ENABLED ?? '').trim() !== '1'
+) {
+  throw new Error(
+    'Formal-group screenshot delivery requires AM_APP_SCREENSHOT_FORMAL_SEND_ENABLED=1',
+  );
+}
+if (
+  formalGroupOutputEnabled &&
+  String(
+    process.env.AM_APP_SCREENSHOT_FORMAL_CHAT_ID_CONFIRMATION ?? '',
+  ).trim() !== formalChatId
+) {
+  throw new Error(
+    'Formal-group screenshot delivery chat ID confirmation does not match FEISHU_CHAT_ID',
+  );
+}
+const destinationChatId = formalGroupOutputEnabled
+  ? formalChatId
+  : testChatId;
 
 const imagePath = path.resolve(args.image);
 const receiptPath = path.resolve(args.receipt);
@@ -126,7 +154,7 @@ const sha256 = crypto.createHash('sha256').update(fileData).digest('hex');
 
 try {
   const receipt = JSON.parse(await fs.readFile(receiptPath, 'utf8'));
-  if (receipt.sha256 === sha256 && receipt.target === 'TEST_GROUP_ONLY' && receipt.messageId) {
+  if (receipt.sha256 === sha256 && receipt.target === reportTarget && receipt.messageId) {
     console.log(JSON.stringify({ alreadySent: true, target: receipt.target, messageId: receipt.messageId, sha256 }));
     process.exit(0);
   }
@@ -137,10 +165,16 @@ try {
 
 const token = await getTenantToken({ appId, appSecret });
 const imageKey = await uploadImage({ token, filePath: imagePath, fileData });
-const messageId = await sendImage({ token, chatId: testChatId, imageKey });
+const messageId = await sendImage({
+  token,
+  chatId: destinationChatId,
+  imageKey,
+});
 const receipt = {
-  receiptType: 'AM_APP_SCREENSHOT_TEST_GROUP_DELIVERY_V1',
-  target: 'TEST_GROUP_ONLY',
+  receiptType: formalGroupOutputEnabled
+    ? 'AM_APP_SCREENSHOT_FORMAL_GROUP_DELIVERY_V1'
+    : 'AM_APP_SCREENSHOT_TEST_GROUP_DELIVERY_V1',
+  target: reportTarget,
   imagePath,
   sha256,
   bytes: fileData.length,

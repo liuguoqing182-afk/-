@@ -359,7 +359,7 @@ def render(options, tasks):
         header_height = 380 + len(wrapped_problems) * 32
     canvas = Image.new('RGB', (WIDTH, total_height(groups, header_height)), BG)
     draw = ImageDraw.Draw(canvas)
-    draw.text((MARGIN, 34), 'AIMirror 首屏配置自动化截图报告', fill=WHITE, font=F_TITLE)
+    draw.text((MARGIN, 34), 'AIMirror 首屏配置发布自动化检测报告', fill=WHITE, font=F_TITLE)
     verdict_text = f'自动判断：通过 {verdicts["PASS"]}｜不通过 {verdicts["FAIL"]}｜执行异常 {verdicts["ERROR"]}'
     verdict_fill = VERDICT_COLORS['FAIL'] if verdicts['FAIL'] else (VERDICT_COLORS['ERROR'] if verdicts['ERROR'] else ACCENT)
     draw.text((MARGIN, 100), verdict_text, fill=verdict_fill, font=F_TITLE)

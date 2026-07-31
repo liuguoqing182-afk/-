@@ -114,3 +114,16 @@ test('merges changes for the same object and creates no-change labels', () => {
   assert.equal(video.noChangeLabel, 'More Style Video配置｜本次无修改');
 });
 
+test('plans formal-group delivery only when the target is explicit', () => {
+  const parsed = parsePublishNotification(CURRENT_RELEASE);
+  const testPlan = planAppScreenshotTasks(parsed);
+  const formalPlan = planAppScreenshotTasks(parsed, {
+    reportTarget: 'FORMAL_GROUP',
+  });
+
+  assert.equal(testPlan.policy.reportTarget, 'TEST_GROUP_ONLY');
+  assert.equal(testPlan.policy.formalGroupOutputEnabled, false);
+  assert.equal(formalPlan.policy.reportTarget, 'FORMAL_GROUP');
+  assert.equal(formalPlan.policy.formalGroupOutputEnabled, true);
+});
+

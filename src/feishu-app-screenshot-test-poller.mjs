@@ -3,6 +3,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import * as Lark from '@larksuiteoapi/node-sdk';
 
+import {
+  APP_SCREENSHOT_REPORT_TARGETS,
+  normalizeAppScreenshotReportTarget,
+} from './app-screenshot-report-target.mjs';
 import { AppScreenshotTestPipeline } from './app-screenshot-test-pipeline.mjs';
 import {
   findAIMirrorPublishMessages,
@@ -17,7 +21,6 @@ import {
   pollFeishuHistoryOnce,
 } from './feishu-history-poller-core.mjs';
 import {
-  assertTestReportDestination,
   sendFeishuTextMessage,
 } from './feishu-report-outbox.mjs';
 
@@ -41,30 +44,73 @@ const root = path.resolve(
 const appId = requiredEnvironment('FEISHU_APP_ID');
 const appSecret = requiredEnvironment('FEISHU_APP_SECRET');
 const formalChatId = requiredEnvironment('FEISHU_CHAT_ID');
-const testChatId = assertTestReportDestination({
-  releaseChatId: formalChatId,
-  testChatId: requiredEnvironment('FEISHU_TEST_CHAT_ID'),
-});
+const testChatId = requiredEnvironment('FEISHU_TEST_CHAT_ID');
+if (formalChatId === testChatId) {
+  throw new Error('FEISHU_CHAT_ID and FEISHU_TEST_CHAT_ID must be different');
+}
+const reportTarget = normalizeAppScreenshotReportTarget(
+  process.env.AM_APP_SCREENSHOT_REPORT_TARGET,
+);
+const formalGroupOutputEnabled =
+  reportTarget === APP_SCREENSHOT_REPORT_TARGETS.FORMAL_GROUP;
+if (
+  formalGroupOutputEnabled &&
+  String(process.env.AM_APP_SCREENSHOT_FORMAL_SEND_ENABLED ?? '').trim() !== '1'
+) {
+  throw new Error(
+    'Formal-group screenshot polling requires AM_APP_SCREENSHOT_FORMAL_SEND_ENABLED=1',
+  );
+}
+if (
+  formalGroupOutputEnabled &&
+  String(
+    process.env.AM_APP_SCREENSHOT_FORMAL_CHAT_ID_CONFIRMATION ?? '',
+  ).trim() !== formalChatId
+) {
+  throw new Error(
+    'Formal-group screenshot polling chat ID confirmation does not match FEISHU_CHAT_ID',
+  );
+}
+const reportChatId = formalGroupOutputEnabled
+  ? formalChatId
+  : testChatId;
+const modeLabel = formalGroupOutputEnabled ? 'formal' : 'test';
 const intervalMs = positiveEnvironment(
-  'AM_APP_SCREENSHOT_TEST_POLL_INTERVAL_MS',
-  10_000,
+  'AM_APP_SCREENSHOT_POLL_INTERVAL_MS',
+  Number(
+    process.env.AM_APP_SCREENSHOT_TEST_POLL_INTERVAL_MS ??
+      (formalGroupOutputEnabled ? 30 * 60 * 1000 : 10_000),
+  ),
 );
 const initialLookbackMs = positiveEnvironment(
-  'AM_APP_SCREENSHOT_TEST_INITIAL_LOOKBACK_MS',
-  10 * 60 * 1000,
+  'AM_APP_SCREENSHOT_INITIAL_LOOKBACK_MS',
+  Number(
+    process.env.AM_APP_SCREENSHOT_TEST_INITIAL_LOOKBACK_MS ??
+      (formalGroupOutputEnabled ? 60 * 60 * 1000 : 10 * 60 * 1000),
+  ),
 );
 const requestTimeoutMs = positiveEnvironment(
-  'AM_APP_SCREENSHOT_TEST_REQUEST_TIMEOUT_MS',
+  'AM_APP_SCREENSHOT_REQUEST_TIMEOUT_MS',
   30_000,
 );
 const acceptAfterMilliseconds = Date.now() - initialLookbackMs;
 const statePath = path.resolve(
-  process.env.AM_APP_SCREENSHOT_TEST_POLL_STATE_PATH ??
-    path.join('data-app-screenshot', 'test-group-poller-state.json'),
+  process.env.AM_APP_SCREENSHOT_POLL_STATE_PATH ??
+    path.join(
+      'data-app-screenshot',
+      formalGroupOutputEnabled
+        ? 'formal-group-poller-state.json'
+        : 'test-group-poller-state.json',
+    ),
 );
 const messageIdPath = path.resolve(
-  process.env.AM_APP_SCREENSHOT_TEST_MESSAGE_ID_PATH ??
-    path.join('data-app-screenshot', 'test-group-processed-message-ids.json'),
+  process.env.AM_APP_SCREENSHOT_MESSAGE_ID_PATH ??
+    path.join(
+      'data-app-screenshot',
+      formalGroupOutputEnabled
+        ? 'formal-group-processed-message-ids.json'
+        : 'test-group-processed-message-ids.json',
+    ),
 );
 const runOnce = process.argv.includes('--once');
 
@@ -74,26 +120,31 @@ if (client.httpInstance?.defaults) {
 }
 const stateStore = new FileHistoryPollStateStore(statePath);
 const deduplicator = new FileMessageIdDeduplicator(messageIdPath, {
-  chatId: testChatId,
+  chatId: reportChatId,
 });
-const pipeline = new AppScreenshotTestPipeline({ root });
+const pipeline = new AppScreenshotTestPipeline({
+  root,
+  reportTarget,
+});
 
 async function safeFailureMessage(candidate, error) {
   const message = [
-    '【AIMirror 自动截图测试】截图流程未完成',
+    formalGroupOutputEnabled
+      ? '【AIMirror 首屏配置发布自动化检测】截图流程未完成'
+      : '【AIMirror 自动截图测试】截图流程未完成',
     `message_id: ${candidate.messageId}`,
     `原因: ${error?.message ?? error}`,
   ].join('\n');
   try {
     await sendFeishuTextMessage({
       client,
-      receiveId: testChatId,
-      allowedReceiveId: testChatId,
+      receiveId: reportChatId,
+      allowedReceiveId: reportChatId,
       text: message,
     });
   } catch (sendError) {
     console.error(
-      '[app-screenshot:test] failure notification failed:',
+      '[app-screenshot:' + modeLabel + '] failure notification failed:',
       sendError?.message ?? sendError,
     );
   }
@@ -108,7 +159,7 @@ async function poll() {
   };
   const result = await pollFeishuHistoryOnce({
     client,
-    chatId: testChatId,
+    chatId: reportChatId,
     stateStore,
     initialLookbackMs,
     overlapMs: 60_000,
@@ -126,7 +177,7 @@ async function poll() {
         handleMessage: async (candidate) => {
           try {
             const pipelineResult = await pipeline.run(candidate);
-            console.log('[app-screenshot:test] pipeline completed:', {
+            console.log('[app-screenshot:' + modeLabel + '] pipeline completed:', {
               messageId: candidate.messageId,
               skipped: pipelineResult.skipped,
               reason: pipelineResult.reason,
@@ -137,7 +188,7 @@ async function poll() {
             });
           } catch (error) {
             console.error(
-              '[app-screenshot:test] pipeline failed:',
+              '[app-screenshot:' + modeLabel + '] pipeline failed:',
               candidate.messageId,
               error,
             );
@@ -155,7 +206,7 @@ async function poll() {
       return stats;
     },
   });
-  console.log('[app-screenshot:test] poll completed:', {
+  console.log('[app-screenshot:' + modeLabel + '] poll completed:', {
     messages: result.messages.length,
     ...stats,
     statePath,
@@ -167,11 +218,15 @@ async function runPollSafely() {
   try {
     await poll();
   } catch (error) {
-    console.error('[app-screenshot:test] poll failed:', error?.stack ?? error);
+    console.error(
+      '[app-screenshot:' + modeLabel + '] poll failed:',
+      error?.stack ?? error,
+    );
   }
 }
 
-console.log('[app-screenshot:test] test-group-only poller started:', {
+console.log('[app-screenshot:' + modeLabel + '] poller started:', {
+  reportTarget,
   intervalMs,
   initialLookbackMs,
   requestTimeoutMs,
