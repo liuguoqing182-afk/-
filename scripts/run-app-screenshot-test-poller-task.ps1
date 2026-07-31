@@ -11,6 +11,9 @@ $stdoutPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.st
 $stderrPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.stderr.log')
 
 function Write-TaskLog([string]$Message) {
+  if ($Message -eq 'Starting test-group-only APP screenshot poller.') {
+    $Message = 'Starting ' + $logName + '-group APP screenshot poller.'
+  }
   $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   Add-Content -LiteralPath $taskLogPath -Value "[$timestamp] $Message" -Encoding UTF8
 }
