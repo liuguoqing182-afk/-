@@ -24,7 +24,9 @@ import {
   classifyModelSearchObservation,
   deterministicModelSearchTargets,
   encodeAdbInputText,
+  encodeAdbUnicodeInput,
   parsePhysicalScreenSize,
+  requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
 } from '../src/deterministic-model-search.mjs';
 import {
@@ -83,6 +85,7 @@ const DEFAULT_RUNNER_ROOT =
   'D:\\Users\\lgq\\自动化\\eagleclaw\\mcp-servers\\eagleclaw-Aimirror';
 const HOME_TAG_ENTRY_SWIPE_SETTLE_MS = 1_500;
 const TAG_VISUAL_READ_TIMEOUT_MS = 45_000;
+const ADB_UNICODE_INPUT_METHOD = 'com.android.adbkeyboard/.AdbIME';
 
 function parseArgs(argv) {
   const values = {};
@@ -1396,6 +1399,95 @@ function clearModelSearchInput(deviceId) {
   );
 }
 
+function currentInputMethod(deviceId) {
+  return adb(
+    deviceId,
+    ['shell', 'settings', 'get', 'secure', 'default_input_method'],
+    { timeout: 3_000 },
+  ).trim();
+}
+
+function enabledInputMethods(deviceId) {
+  return adb(deviceId, ['shell', 'ime', 'list', '-s'], {
+    timeout: 3_000,
+  })
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function setInputMethod(deviceId, inputMethod) {
+  adb(deviceId, ['shell', 'ime', 'set', inputMethod], {
+    timeout: 3_000,
+  });
+}
+
+function restoreInputMethod(deviceId, originalInputMethod) {
+  if (
+    originalInputMethod &&
+    originalInputMethod !== 'null' &&
+    originalInputMethod !== ADB_UNICODE_INPUT_METHOD
+  ) {
+    setInputMethod(deviceId, originalInputMethod);
+    return originalInputMethod;
+  }
+  adb(deviceId, ['shell', 'ime', 'reset'], { timeout: 3_000 });
+  return 'system-default';
+}
+
+function inputModelSearchText(deviceId, modelName) {
+  if (!requiresAdbUnicodeInput(modelName)) {
+    adb(
+      deviceId,
+      ['shell', 'input', 'text', encodeAdbInputText(modelName)],
+      { timeout: 5_000 },
+    );
+    return 'adb-text';
+  }
+
+  const originalInputMethod = currentInputMethod(deviceId);
+  const inputMethods = enabledInputMethods(deviceId);
+  if (!inputMethods.includes(ADB_UNICODE_INPUT_METHOD)) {
+    throw new Error(
+      `Unicode model search input method is not installed or enabled: ${ADB_UNICODE_INPUT_METHOD}`,
+    );
+  }
+
+  let switched = false;
+  try {
+    setInputMethod(deviceId, ADB_UNICODE_INPUT_METHOD);
+    switched = true;
+    const output = adb(
+      deviceId,
+      [
+        'shell',
+        'am',
+        'broadcast',
+        '-a',
+        'ADB_INPUT_B64',
+        '--es',
+        'msg',
+        encodeAdbUnicodeInput(modelName),
+      ],
+      { timeout: 5_000 },
+    );
+    if (!/Broadcast completed:/u.test(output)) {
+      throw new Error(
+        `Unicode model search input broadcast did not complete: ${output.trim()}`,
+      );
+    }
+    log(
+      `MODEL_SEARCH_UNICODE_INPUT_SET query=${JSON.stringify(modelName)}`,
+    );
+    return 'adb-unicode-ime';
+  } finally {
+    if (switched) {
+      const restored = restoreInputMethod(deviceId, originalInputMethod);
+      log(`MODEL_SEARCH_INPUT_METHOD_RESTORED ${restored}`);
+    }
+  }
+}
+
 async function normalizeModelSearchPage(deviceId, packageName, deadline) {
   wakeAndBringToFront(deviceId, packageName);
   await sleep(800);
@@ -1428,13 +1520,9 @@ async function performModelSearch(task, context) {
 
   adbTap(deviceId, targets.searchInput);
   clearModelSearchInput(deviceId);
-  adb(
-    deviceId,
-    ['shell', 'input', 'text', encodeAdbInputText(task.objectName)],
-    { timeout: 5_000 },
-  );
+  const inputMode = inputModelSearchText(deviceId, task.objectName);
   log(
-    `MODEL_SEARCH_INPUT_SET deterministic query=${JSON.stringify(
+    `MODEL_SEARCH_INPUT_SET deterministic mode=${inputMode} query=${JSON.stringify(
       task.objectName,
     )}`,
   );

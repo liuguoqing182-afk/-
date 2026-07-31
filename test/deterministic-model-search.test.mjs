@@ -9,9 +9,11 @@ import {
   classifyModelSearchObservation,
   deterministicModelSearchTargets,
   encodeAdbInputText,
+  encodeAdbUnicodeInput,
   findHomeSearchTrigger,
   findSearchInput,
   parsePhysicalScreenSize,
+  requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
 } from '../src/deterministic-model-search.mjs';
 
@@ -142,5 +144,10 @@ test('prefers an Android override size and safely encodes model names', () => {
     { width: 1080, height: 2220 },
   );
   assert.equal(encodeAdbInputText('Kitchen Showdown III'), 'Kitchen%sShowdown%sIII');
-  assert.throws(() => encodeAdbInputText('Bad & Unsafe'), /unsupported/);
+  assert.equal(requiresAdbUnicodeInput('Kitchen Showdown III'), false);
+  assert.equal(requiresAdbUnicodeInput('掌心变装'), true);
+  assert.equal(encodeAdbUnicodeInput('掌心变装'), '5o6M5b+D5Y+Y6KOF');
+  assert.throws(() => encodeAdbInputText('掌心变装'), /requires Unicode/);
+  assert.throws(() => encodeAdbInputText('Bad & Unsafe'), /requires Unicode/);
+  assert.throws(() => requiresAdbUnicodeInput('Bad\nText'), /control/);
 });

@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 export const MODEL_SEARCH_RESULT_TIMEOUT_MS = 100_000;
 export const MODEL_SEARCH_POLL_INTERVAL_MS = 10_000;
 export const MODEL_SEARCH_EXECUTION_ATTEMPT_MAX = 3;
@@ -80,12 +82,29 @@ export function deterministicModelSearchTargets(screenSize) {
 export function encodeAdbInputText(value) {
   const text = String(value ?? '');
   if (!text.trim()) throw new Error('model search text must not be empty');
-  if (!/^[\p{L}\p{N} ._'-]+$/u.test(text)) {
+  if (!/^[A-Za-z0-9 ._'-]+$/.test(text)) {
     throw new Error(
-      `model search text contains unsupported characters: ${text}`,
+      `model search text requires Unicode input: ${text}`,
     );
   }
   return text.replace(/ /g, '%s');
+}
+
+export function requiresAdbUnicodeInput(value) {
+  const text = String(value ?? '');
+  if (!text.trim()) throw new Error('model search text must not be empty');
+  if (/[\u0000-\u001F\u007F]/u.test(text)) {
+    throw new Error(
+      `model search text contains unsupported control characters`,
+    );
+  }
+  return !/^[A-Za-z0-9 ._'-]+$/.test(text);
+}
+
+export function encodeAdbUnicodeInput(value) {
+  const text = String(value ?? '');
+  requiresAdbUnicodeInput(text);
+  return Buffer.from(text, 'utf8').toString('base64');
 }
 
 function booleanAttribute(value) {

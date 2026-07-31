@@ -22,11 +22,25 @@ test('added-model search is deterministic and has no AI action fallback', () => 
   );
   assert.match(source, /deterministicModelSearchTargets/);
   assert.match(source, /clearModelSearchInput/);
-  assert.match(source, /encodeAdbInputText/);
+  assert.match(source, /inputModelSearchText/);
   assert.match(source, /targets\.submitSearch/);
   assert.doesNotMatch(source, /aiAction|performAiModelSearchFallback/);
   assert.match(source, /MODEL_SEARCH_ATTEMPT_TIMEOUT_MS/);
   assert.match(source, /MODEL_SEARCH_RESULT_TIMEOUT_MS/);
+});
+
+test('non-ASCII model names use Base64 Unicode IME input and always restore the original IME', () => {
+  const source = functionSource(
+    'function inputModelSearchText',
+    'async function normalizeModelSearchPage',
+  );
+  assert.match(source, /requiresAdbUnicodeInput/);
+  assert.match(source, /encodeAdbInputText/);
+  assert.match(source, /ADB_UNICODE_INPUT_METHOD/);
+  assert.match(source, /ADB_INPUT_B64/);
+  assert.match(source, /encodeAdbUnicodeInput/);
+  assert.match(source, /finally/);
+  assert.match(source, /restoreInputMethod/);
 });
 
 test('AI query is abortable and exclusive so retries cannot overlap', () => {
