@@ -23,6 +23,18 @@ export function normalizeModelName(value) {
     .toLocaleLowerCase('en-US');
 }
 
+export function modelResultTextFullyCoversSearchText(
+  searchText,
+  resultText,
+) {
+  const normalizedSearchText = normalizeModelName(searchText);
+  const normalizedResultText = normalizeModelName(resultText);
+  return (
+    normalizedSearchText.length > 0 &&
+    normalizedResultText.includes(normalizedSearchText)
+  );
+}
+
 function compactModelNameCharacters(value) {
   return normalizeModelName(value).replace(/[^\p{L}\p{N}]/gu, '');
 }
@@ -108,6 +120,10 @@ export function judgeAddedModelTitle({ modelName, firstResultTitle }) {
   const detectedModelName = String(firstResultTitle ?? '').trim();
   const expectedName = normalizeModelName(expectedModelName);
   const detectedName = normalizeModelName(detectedModelName);
+  const titleFullyCovered = modelResultTextFullyCoversSearchText(
+    expectedModelName,
+    detectedModelName,
+  );
   const truncatedMatch = matchTruncatedModelTitle(
     expectedModelName,
     detectedModelName,
@@ -116,6 +132,7 @@ export function judgeAddedModelTitle({ modelName, firstResultTitle }) {
     expectedModelName,
     detectedModelName,
     titleMatched: false,
+    titleFullyCovered,
     titleTruncated: truncatedMatch.titleTruncated,
     visibleTitleCoverage: truncatedMatch.visibleTitleCoverage,
   };
@@ -140,6 +157,17 @@ export function judgeAddedModelTitle({ modelName, firstResultTitle }) {
       BUSINESS_VERDICTS.PASS,
       'MODEL_TEXT_MATCH',
       '搜索结果文字与发布模型一致',
+      {
+        ...details,
+        titleMatched: true,
+      },
+    );
+  }
+  if (titleFullyCovered) {
+    return outcome(
+      BUSINESS_VERDICTS.PASS,
+      'MODEL_TEXT_FULLY_COVERED',
+      '搜索结果文字完整包含发布模型名称',
       {
         ...details,
         titleMatched: true,
@@ -173,7 +201,13 @@ export function judgeModelSearchEvidence({
   const evidence = normalizeModelSearchEvidence(rawEvidence);
   const expectedName = normalizeModelName(modelName);
   const detectedName = normalizeModelName(evidence.firstResultTitle);
-  const titleMatched = Boolean(expectedName) && expectedName === detectedName;
+  const titleExactlyMatched =
+    Boolean(expectedName) && expectedName === detectedName;
+  const titleFullyCovered = modelResultTextFullyCoversSearchText(
+    modelName,
+    evidence.firstResultTitle,
+  );
+  const titleMatched = titleFullyCovered;
   const imageLoaded = LOADED_IMAGE_STATES.has(
     evidence.firstResultImageState,
   );
@@ -182,6 +216,8 @@ export function judgeModelSearchEvidence({
     expectedModelName: String(modelName ?? '').trim(),
     detectedModelName: evidence.firstResultTitle,
     titleMatched,
+    titleExactlyMatched,
+    titleFullyCovered,
     imageLoaded,
     evidence,
   };

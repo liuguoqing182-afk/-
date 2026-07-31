@@ -5,6 +5,7 @@ import {
   MODEL_EXPECTED_STATES,
   judgeAddedModelTitle,
   judgeModelSearchEvidence,
+  modelResultTextFullyCoversSearchText,
   normalizeModelName,
 } from '../src/model-search-verdict.mjs';
 
@@ -38,6 +39,36 @@ test('added model fails when the visible search-result text differs', () => {
   });
   assert.equal(result.businessVerdict, BUSINESS_VERDICTS.FAIL);
   assert.equal(result.verdictReasonCode, 'MODEL_TEXT_MISMATCH');
+});
+
+test('passes when result text fully contains the searched model name', () => {
+  const background = judgeAddedModelTitle({
+    modelName: 'AI Background',
+    firstResultTitle: 'AI Background AI Filter',
+  });
+  const makeUp = judgeAddedModelTitle({
+    modelName: 'Make Up',
+    firstResultTitle: '  MAKE   UP   AI Filter  ',
+  });
+  assert.equal(background.businessVerdict, BUSINESS_VERDICTS.PASS);
+  assert.equal(background.verdictReasonCode, 'MODEL_TEXT_FULLY_COVERED');
+  assert.equal(background.titleFullyCovered, true);
+  assert.equal(makeUp.businessVerdict, BUSINESS_VERDICTS.PASS);
+  assert.equal(makeUp.verdictReasonCode, 'MODEL_TEXT_FULLY_COVERED');
+});
+
+test('coverage rejects missing or reordered text without an ellipsis', () => {
+  assert.equal(
+    modelResultTextFullyCoversSearchText(
+      'AI Background',
+      'AI Back AI Filter',
+    ),
+    false,
+  );
+  assert.equal(
+    modelResultTextFullyCoversSearchText('Make Up', 'Up Make AI Filter'),
+    false,
+  );
 });
 
 test('passes an explicitly truncated title with matching prefix over 80 percent', () => {
@@ -98,6 +129,22 @@ test('passes a present model only when title and image both match', () => {
   assert.equal(result.verdictReasonCode, 'MODEL_TEXT_AND_IMAGE_MATCH');
   assert.equal(result.titleMatched, true);
   assert.equal(result.imageLoaded, true);
+});
+
+test('passes a present model when loaded result text fully contains its name', () => {
+  const result = judge({
+    modelName: 'AI Background',
+    evidence: {
+      resultState: 'RESULTS',
+      firstResultVisible: true,
+      firstResultTitle: 'AI Background AI Filter',
+      firstResultImageState: 'LOADED',
+    },
+  });
+  assert.equal(result.businessVerdict, BUSINESS_VERDICTS.PASS);
+  assert.equal(result.verdictReasonCode, 'MODEL_TEXT_AND_IMAGE_MATCH');
+  assert.equal(result.titleExactlyMatched, false);
+  assert.equal(result.titleFullyCovered, true);
 });
 
 test('fails when the first result has no corresponding model text', () => {
@@ -191,6 +238,22 @@ test('fails a deletion when the deleted model is still visible', () => {
   });
   assert.equal(result.businessVerdict, BUSINESS_VERDICTS.FAIL);
   assert.equal(result.verdictReasonCode, 'DELETED_MODEL_STILL_VISIBLE');
+});
+
+test('fails a deletion when result text contains the full deleted model name', () => {
+  const result = judge({
+    modelName: 'Make Up',
+    expectedState: MODEL_EXPECTED_STATES.ABSENT,
+    evidence: {
+      resultState: 'RESULTS',
+      firstResultVisible: true,
+      firstResultTitle: 'Make Up AI Filter',
+      firstResultImageState: 'LOADED',
+    },
+  });
+  assert.equal(result.businessVerdict, BUSINESS_VERDICTS.FAIL);
+  assert.equal(result.verdictReasonCode, 'DELETED_MODEL_STILL_VISIBLE');
+  assert.equal(result.titleFullyCovered, true);
 });
 
 test('separates app/network errors from configuration failures', () => {
