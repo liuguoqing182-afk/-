@@ -239,3 +239,47 @@ test('ignores every line in an i18n-only section without reporting parse errors'
   assert.deepEqual(result.declaredChanges, []);
   assert.deepEqual(result.unparsedLines, []);
 });
+
+test('ignores splash-screen changes while parsing the following release sections', () => {
+  const result = parsePublishNotification(`AIMirror首屏配置发布成功!
+模版修改: 新增模型: Pool Triumph,
+新增模型: Street Rap
+开屏设置改动:
+开屏图[1754045335435] ,封面图/视频改变了 ,标题改变了 ,副标题改变了 ,跳转参数改变了,
+开屏图[1735890389820] ,封面图/视频改变了 ,标题改变了 ,类型改变了 ,副标题改变了 ,跳转参数改变了,
+开屏图[1751624202105] ,封面图/视频改变了 ,标题改变了 ,副标题改变了 ,跳转参数改变了
+More Style AI Filter配置: 标签Studio的模型排序改变,
+新增了模型(所属标签Studio)[3022, 3021],
+标签Studio的组封面修改
+国际化配置: 新增国际化模型: 3022
+新首页配置: 标签Trend Hub的模型排序改变,
+新增了模型(所属标签Trend Hub)[3022, 3021, 20489]
+More Style Video配置: 标签Viral Dance的模型排序改变,
+新增了模型(所属标签Viral Dance)[20489]
+操作人: wuzhenzhen@riverolls.com
+发布环境: 从DEV发布到PRO`);
+
+  assert.equal(result.valid, true);
+  assert.equal(result.fullyParsed, true);
+  assert.deepEqual(result.unparsedLines, []);
+  assert.deepEqual(result.templateSections, [
+    '模版修改',
+    'More Style AI Filter配置',
+    '新首页配置',
+    'More Style Video配置',
+  ]);
+  assert.deepEqual(
+    result.declaredChanges.map(({ type }) => type),
+    [
+      'MODEL_CATALOG_ADD',
+      'MODEL_CATALOG_ADD',
+      'MODEL_REORDER',
+      'MODEL_ADD',
+      'GROUP_COVER_CHANGE',
+      'MODEL_REORDER',
+      'MODEL_ADD',
+      'MODEL_REORDER',
+      'MODEL_ADD',
+    ],
+  );
+});

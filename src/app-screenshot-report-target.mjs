@@ -20,3 +20,7 @@ export function isFormalAppScreenshotTarget(value) {
     APP_SCREENSHOT_REPORT_TARGETS.FORMAL_GROUP
   );
 }
+
+export function shouldSendAppScreenshotFailureNotification(value) {
+  return !isFormalAppScreenshotTarget(value);
+}

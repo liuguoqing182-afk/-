@@ -79,6 +79,7 @@ const CHANGE_PATTERNS = [
 const SECTION_PATTERNS = [
   [/^模[版板]修改\s*[：:]$/, '模版修改'],
   [/^More Style AI Filter配置\s*[：:]$/i, 'More Style AI Filter配置'],
+  [/^开屏设置改动\s*[：:]$/, '开屏设置改动'],
   [/^国际化配置\s*[：:]$/, '国际化配置'],
   [/^新首页配置\s*[：:]$/, '新首页配置'],
   [/^More Style Video配置\s*[：:]$/i, 'More Style Video配置'],
@@ -86,14 +87,15 @@ const SECTION_PATTERNS = [
   [/^新手引导页配置\s*[：:]$/, '新手引导页配置'],
 ];
 
-const IGNORED_SECTIONS = new Set(['国际化配置']);
+const IGNORED_SECTIONS = new Set(['开屏设置改动', '国际化配置']);
 
 const INLINE_SECTION_PATTERN =
-  /^[ \t]*(模[版板]修改|More Style AI Filter配置|国际化配置|新首页配置|More Style Video配置|More Style Editor配置|新手引导页配置)[ \t]*([：:])[ \t]*(\S.*)$/gim;
+  /^[ \t]*(模[版板]修改|More Style AI Filter配置|开屏设置改动|国际化配置|新首页配置|More Style Video配置|More Style Editor配置|新手引导页配置)[ \t]*([：:])[ \t]*(\S.*)$/gim;
 
 const FLATTENED_BOUNDARY_PATTERNS = [
   '模[版板]修改\\s*[：:]',
   'More Style AI Filter配置\\s*[：:]',
+  '开屏设置改动\\s*[：:]',
   '国际化配置\\s*[：:]',
   '新首页配置\\s*[：:]',
   'More Style Video配置\\s*[：:]',

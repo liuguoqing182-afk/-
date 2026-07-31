@@ -39,3 +39,11 @@ test('formal polling and delivery both require explicit target authorization', (
   assert.match(sender, /AM_APP_SCREENSHOT_FORMAL_CHAT_ID_CONFIRMATION/u);
   assert.match(sender, /chatId: destinationChatId/u);
 });
+
+test('formal polling suppresses failure text and permits only final report delivery', () => {
+  assert.match(poller, /failure notification suppressed; final reports only/u);
+  assert.match(
+    poller,
+    /shouldSendAppScreenshotFailureNotification\(reportTarget\)/u,
+  );
+});

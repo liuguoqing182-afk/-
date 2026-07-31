@@ -5,6 +5,7 @@ import {
   APP_SCREENSHOT_REPORT_TARGETS,
   isFormalAppScreenshotTarget,
   normalizeAppScreenshotReportTarget,
+  shouldSendAppScreenshotFailureNotification,
 } from '../src/app-screenshot-report-target.mjs';
 
 test('APP screenshot reports default to the isolated test group', () => {
@@ -24,5 +25,16 @@ test('formal report mode must be selected explicitly', () => {
   assert.throws(
     () => normalizeAppScreenshotReportTarget('unknown'),
     /unsupported APP screenshot report target/u,
+  );
+});
+
+test('formal mode sends only final reports and suppresses failure notifications', () => {
+  assert.equal(
+    shouldSendAppScreenshotFailureNotification('FORMAL_GROUP'),
+    false,
+  );
+  assert.equal(
+    shouldSendAppScreenshotFailureNotification('TEST_GROUP_ONLY'),
+    true,
   );
 });

@@ -6,6 +6,7 @@ import * as Lark from '@larksuiteoapi/node-sdk';
 import {
   APP_SCREENSHOT_REPORT_TARGETS,
   normalizeAppScreenshotReportTarget,
+  shouldSendAppScreenshotFailureNotification,
 } from './app-screenshot-report-target.mjs';
 import { AppScreenshotTestPipeline } from './app-screenshot-test-pipeline.mjs';
 import {
@@ -128,10 +129,15 @@ const pipeline = new AppScreenshotTestPipeline({
 });
 
 async function safeFailureMessage(candidate, error) {
+  if (!shouldSendAppScreenshotFailureNotification(reportTarget)) {
+    console.error(
+      '[app-screenshot:formal] failure notification suppressed; final reports only:',
+      candidate.messageId,
+    );
+    return;
+  }
   const message = [
-    formalGroupOutputEnabled
-      ? '【AIMirror 首屏配置发布自动化检测】截图流程未完成'
-      : '【AIMirror 自动截图测试】截图流程未完成',
+    '【AIMirror 自动截图测试】截图流程未完成',
     `message_id: ${candidate.messageId}`,
     `原因: ${error?.message ?? error}`,
   ].join('\n');
