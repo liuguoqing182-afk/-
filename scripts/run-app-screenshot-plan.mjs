@@ -18,6 +18,7 @@ import {
   MODEL_SEARCH_ATTEMPT_TIMEOUT_MS,
   MODEL_SEARCH_BACK_PRESS_COUNT,
   MODEL_SEARCH_EXECUTION_ATTEMPT_MAX,
+  MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS,
   MODEL_SEARCH_OPERATION_TIMEOUT_MS,
   MODEL_SEARCH_POLL_INTERVAL_MS,
   MODEL_SEARCH_RESULT_TIMEOUT_MS,
@@ -25,6 +26,7 @@ import {
   deterministicModelSearchTargets,
   encodeAdbInputText,
   encodeAdbUnicodeInput,
+  isExplicitModelSearchNoResult,
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
@@ -1287,7 +1289,7 @@ async function queryModelSearchEvidence(agent, timeoutMs = 60_000) {
       agent,
       {
         resultState:
-          'Read the current search result only. Return exactly one of RESULTS, NO_RESULTS, LOADING, NETWORK_ERROR, APP_ERROR, or UNKNOWN.',
+          'Read the current search result only. Return exactly one of RESULTS, NO_RESULTS, LOADING, NETWORK_ERROR, APP_ERROR, or UNKNOWN. If any first result card is visible, return RESULTS even when unrelated No results text also appears elsewhere.',
         firstResultVisible:
           'Read the first result card only. Return true only when that card is visibly present.',
         firstResultTitle:
@@ -1321,6 +1323,7 @@ async function waitForModelSearchVerdict(
   const deadline = Date.now() + timeoutMs;
   let lastVerdict = null;
   let lastReadError = null;
+  let consecutiveNoResultReadCount = 0;
 
   while (Date.now() < deadline) {
     const remainingMs = deadline - Date.now();
@@ -1334,9 +1337,26 @@ async function waitForModelSearchVerdict(
         expectedState: task.expectedState,
         evidence,
       });
+      const explicitNoResult = isExplicitModelSearchNoResult(lastVerdict);
+      consecutiveNoResultReadCount = explicitNoResult
+        ? consecutiveNoResultReadCount + 1
+        : 0;
       const classification = classifyModelSearchObservation(lastVerdict);
       if (classification.state === 'BUSINESS_COMPLETE') {
-        return lastVerdict;
+        if (
+          explicitNoResult &&
+          consecutiveNoResultReadCount <
+            MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS
+        ) {
+          log(
+            'MODEL_NO_RESULT_CONFIRMATION ' +
+              consecutiveNoResultReadCount +
+              '/' +
+              MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS,
+          );
+        } else {
+          return lastVerdict;
+        }
       }
       if (classification.state === 'EXECUTION_INCOMPLETE') {
         lastReadError = new Error(classification.reason);
@@ -1350,6 +1370,17 @@ async function waitForModelSearchVerdict(
       Math.max(0, deadline - Date.now()),
     );
     if (waitMs > 0) await sleep(waitMs);
+  }
+
+  if (
+    isExplicitModelSearchNoResult(lastVerdict) &&
+    consecutiveNoResultReadCount < MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS
+  ) {
+    throw new Error(
+      'model search no-result state was not confirmed by ' +
+        MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS +
+        ' consecutive reads',
+    );
   }
 
   const deadlineResult = resolveModelSearchAtDeadline(lastVerdict);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MODEL_SEARCH_ATTEMPT_TIMEOUT_MS,
   MODEL_SEARCH_EXECUTION_ATTEMPT_MAX,
+  MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS,
   MODEL_SEARCH_OPERATION_TIMEOUT_MS,
   MODEL_SEARCH_RESULT_TIMEOUT_MS,
   centerOfNode,
@@ -12,6 +13,7 @@ import {
   encodeAdbUnicodeInput,
   findHomeSearchTrigger,
   findSearchInput,
+  isExplicitModelSearchNoResult,
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
@@ -23,13 +25,14 @@ function verdict({
   resultState = 'RESULTS',
   title = 'Actual',
   imageState = 'LOADED',
+  visible = true,
 } = {}) {
   return {
     businessVerdict,
     verdictReasonCode: reason,
     evidence: {
       resultState,
-      firstResultVisible: true,
+      firstResultVisible: visible,
       firstResultTitle: title,
       firstResultImageState: imageState,
     },
@@ -99,6 +102,32 @@ test('a matching card with a loading image waits until the deadline', () => {
   });
 });
 
+test('a visible card overrides a contradictory no-results state while its image loads', () => {
+  const loadingVerdict = verdict({
+    reason: 'MODEL_IMAGE_NOT_LOADED',
+    resultState: 'NO_RESULTS',
+    title: 'Expected',
+    imageState: 'PLACEHOLDER',
+  });
+  assert.deepEqual(classifyModelSearchObservation(loadingVerdict), {
+    state: 'WAIT_FOR_RESULT',
+  });
+  assert.equal(isExplicitModelSearchNoResult(loadingVerdict), false);
+});
+
+test('a fully read visible card can complete despite a contradictory no-results state', () => {
+  const matchingVerdict = verdict({
+    businessVerdict: 'PASS',
+    reason: 'MODEL_TEXT_AND_IMAGE_MATCH',
+    resultState: 'NO_RESULTS',
+    title: 'Expected',
+    imageState: 'LOADED',
+  });
+  assert.deepEqual(classifyModelSearchObservation(matchingVerdict), {
+    state: 'BUSINESS_COMPLETE',
+  });
+});
+
 test('an unreadable first card remains an execution incomplete result', () => {
   const unreadable = verdict({
     reason: 'MODEL_TEXT_MISSING',
@@ -112,17 +141,84 @@ test('an unreadable first card remains an execution incomplete result', () => {
 });
 
 test('an explicit no-result page is a complete business result', () => {
+  assert.equal(MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS, 2);
   assert.deepEqual(
     classifyModelSearchObservation(
       verdict({
         reason: 'MODEL_NOT_FOUND',
         resultState: 'NO_RESULTS',
         title: '',
-        imageState: 'UNKNOWN',
+        imageState: 'MISSING',
+        visible: false,
       }),
     ),
     { state: 'BUSINESS_COMPLETE' },
   );
+  assert.equal(
+    isExplicitModelSearchNoResult(
+      verdict({
+        reason: 'MODEL_NOT_FOUND',
+        resultState: 'NO_RESULTS',
+        title: '',
+        imageState: 'MISSING',
+        visible: false,
+      }),
+    ),
+    true,
+  );
+});
+
+test('no-results with PLACEHOLDER image evidence keeps waiting', () => {
+  const unsettled = verdict({
+    reason: 'MODEL_NOT_FOUND',
+    resultState: 'NO_RESULTS',
+    title: '',
+    imageState: 'PLACEHOLDER',
+    visible: false,
+  });
+  assert.equal(isExplicitModelSearchNoResult(unsettled), false);
+  assert.deepEqual(classifyModelSearchObservation(unsettled), {
+    state: 'WAIT_FOR_RESULT',
+    reason: 'MODEL_NOT_FOUND',
+  });
+  assert.deepEqual(resolveModelSearchAtDeadline(unsettled), {
+    state: 'EXECUTION_INCOMPLETE',
+    reason: 'MODEL_NOT_FOUND',
+  });
+});
+
+test('no-results with UNKNOWN image evidence keeps waiting', () => {
+  const unsettled = verdict({
+    reason: 'MODEL_NOT_FOUND',
+    resultState: 'NO_RESULTS',
+    title: '',
+    imageState: 'UNKNOWN',
+    visible: false,
+  });
+  assert.equal(isExplicitModelSearchNoResult(unsettled), false);
+  assert.deepEqual(classifyModelSearchObservation(unsettled), {
+    state: 'WAIT_FOR_RESULT',
+    reason: 'MODEL_NOT_FOUND',
+  });
+  assert.deepEqual(resolveModelSearchAtDeadline(unsettled), {
+    state: 'EXECUTION_INCOMPLETE',
+    reason: 'MODEL_NOT_FOUND',
+  });
+});
+
+test('a contradictory no-result response with a title is not explicit absence', () => {
+  const contradictory = verdict({
+    reason: 'RESULT_CARD_MISSING',
+    resultState: 'NO_RESULTS',
+    title: 'Expected',
+    imageState: 'UNKNOWN',
+    visible: false,
+  });
+  assert.equal(isExplicitModelSearchNoResult(contradictory), false);
+  assert.deepEqual(classifyModelSearchObservation(contradictory), {
+    state: 'WAIT_FOR_RESULT',
+    reason: 'RESULT_CARD_MISSING',
+  });
 });
 
 

@@ -86,6 +86,17 @@ test('completed model-search verdict is screenshotted and is not retried', () =>
   assert.doesNotMatch(runner, /BUSINESS_VERDICT_RETRY|retryBusinessVerdict/);
 });
 
+test('model-search absence requires two consecutive explicit no-result reads', () => {
+  const source = functionSource(
+    'async function waitForModelSearchVerdict',
+    'function modelSearchOperationDeadline',
+  );
+  assert.match(source, /isExplicitModelSearchNoResult/);
+  assert.match(source, /consecutiveNoResultReadCount/);
+  assert.match(source, /MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS/);
+  assert.match(source, /MODEL_SEARCH_POLL_INTERVAL_MS/);
+});
+
 test('model search never force-stops or restarts the App process', () => {
   const source = functionSource(
     'async function executeTask',

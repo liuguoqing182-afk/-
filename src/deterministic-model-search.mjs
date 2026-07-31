@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 
 export const MODEL_SEARCH_RESULT_TIMEOUT_MS = 100_000;
 export const MODEL_SEARCH_POLL_INTERVAL_MS = 10_000;
+export const MODEL_SEARCH_NO_RESULT_CONFIRMATION_READS = 2;
 export const MODEL_SEARCH_EXECUTION_ATTEMPT_MAX = 3;
 export const MODEL_SEARCH_ATTEMPT_TIMEOUT_MS = 110_000;
 export const MODEL_SEARCH_OPERATION_TIMEOUT_MS = 10_000;
@@ -15,6 +16,7 @@ const READABLE_IMAGE_STATES = new Set([
 ]);
 const NO_RESULT_STATES = new Set(['NO_RESULTS', 'EMPTY']);
 const ERROR_RESULT_STATES = new Set(['APP_ERROR', 'NETWORK_ERROR', 'ERROR']);
+const SETTLED_NO_RESULT_IMAGE_STATES = new Set(['MISSING']);
 
 function decodeXmlAttribute(value) {
   return String(value ?? '')
@@ -223,6 +225,7 @@ export function classifyModelSearchObservation(verdict) {
   const imageState = String(
     evidence.firstResultImageState ?? '',
   ).toUpperCase();
+  const firstResultTitle = String(evidence.firstResultTitle ?? '').trim();
 
   if (ERROR_RESULT_STATES.has(resultState)) {
     return {
@@ -230,16 +233,18 @@ export function classifyModelSearchObservation(verdict) {
       reason: verdict?.verdictReasonCode ?? 'SEARCH_PAGE_ERROR',
     };
   }
-  if (NO_RESULT_STATES.has(resultState)) {
+  if (isExplicitModelSearchNoResult(verdict)) {
     return { state: 'BUSINESS_COMPLETE' };
   }
   if (verdict?.businessVerdict === 'PASS') {
     return { state: 'BUSINESS_COMPLETE' };
   }
+  // A visible, readable card is stronger evidence than an AI result-state
+  // label. The reader can occasionally report NO_RESULTS while still reading
+  // the card title/image from the same screen.
   const firstCardCompletelyRead =
-    resultState === 'RESULTS' &&
     evidence.firstResultVisible === true &&
-    Boolean(String(evidence.firstResultTitle ?? '').trim()) &&
+    Boolean(firstResultTitle) &&
     READABLE_IMAGE_STATES.has(imageState);
   if (
     verdict?.verdictReasonCode === 'MODEL_IMAGE_NOT_LOADED' &&
@@ -254,6 +259,20 @@ export function classifyModelSearchObservation(verdict) {
     state: 'WAIT_FOR_RESULT',
     reason: verdict?.verdictReasonCode ?? 'MODEL_RESULT_NOT_READABLE',
   };
+}
+
+export function isExplicitModelSearchNoResult(verdict) {
+  const evidence = verdict?.evidence ?? {};
+  const resultState = String(evidence.resultState ?? '').toUpperCase();
+  const imageState = String(
+    evidence.firstResultImageState ?? '',
+  ).toUpperCase();
+  return (
+    NO_RESULT_STATES.has(resultState) &&
+    evidence.firstResultVisible !== true &&
+    !String(evidence.firstResultTitle ?? '').trim() &&
+    SETTLED_NO_RESULT_IMAGE_STATES.has(imageState)
+  );
 }
 
 export function resolveModelSearchAtDeadline(lastVerdict) {
