@@ -39,6 +39,14 @@ test('AI query is abortable and exclusive so retries cannot overlap', () => {
   assert.match(source, /agent\.aiQuery\(demand, \{ abortSignal \}\)/);
   assert.match(source, /AI_QUERY_ABORT_SETTLED/);
   assert.doesNotMatch(source, /withTimeout\(agent\.aiQuery/);
+  const locateSource = functionSource(
+    'async function tagAiLocate',
+    'async function waitForLoadedImages',
+  );
+  assert.match(locateSource, /aiReadGate\.run/);
+  assert.match(locateSource, /runAbortableOperation/);
+  assert.match(locateSource, /agent\.aiLocate\(prompt, \{ abortSignal \}\)/);
+  assert.match(locateSource, /TAG_AI_LOCATE_ABORT_SETTLED/);
 });
 
 test('added-model AI reads only the first result title', () => {
@@ -107,13 +115,53 @@ test('tag entry starts at restarted page-top and scans only with finger-up gestu
     'function isTagFlow',
   );
   assert.match(source, /direction=initial-top/);
-  assert.match(source, /await tagVerticalSwipe\(deviceId\)/);
+  assert.match(source, /await tagVerticalSwipe\([\s\S]*?HOME_TAG_ENTRY_SWIPE_SETTLE_MS/);
   assert.match(source, /direction=finger-up/);
   assert.match(source, /page-bottom/);
   assert.doesNotMatch(
     source,
     /tagReverseVerticalSwipe|finger-down|scanScrollablePage/,
   );
+});
+
+test('Home tag entry keeps the original swipe and changes only its settle to 1.5 seconds', () => {
+  const swipeSource = functionSource(
+    'async function tagVerticalSwipe',
+    'async function tagReverseVerticalSwipe',
+  );
+  const entrySource = functionSource(
+    'async function findTagWithoutOpening',
+    'function isTagFlow',
+  );
+  assert.match(
+    swipeSource,
+    /'720', '2300', '720', '720', '700'/,
+  );
+  assert.match(swipeSource, /settleMs = 2_000/);
+  assert.match(swipeSource, /sleep\(settleMs\)/);
+  assert.match(entrySource, /flow === 'HOME_TAG'/);
+  assert.match(entrySource, /HOME_TAG_ENTRY_SWIPE_SETTLE_MS/);
+  assert.match(runner, /HOME_TAG_ENTRY_SWIPE_SETTLE_MS = 1_500/);
+});
+
+test('decorated Home tags use read-only visual text fallback and programmatic tap', () => {
+  const visualSource = functionSource(
+    'function visualHomeTagReadEnabled',
+    'async function findTagWithoutOpening',
+  );
+  const openSource = functionSource(
+    'async function openTag',
+    'async function enterTagModule',
+  );
+  assert.match(visualSource, /task\?\.flow === 'HOME_TAG'/);
+  assert.match(visualSource, /homeTagTitleHasDecorativeSymbols/);
+  assert.match(visualSource, /await aiQuery/);
+  assert.match(visualSource, /await tagAiLocate/);
+  assert.match(visualSource, /exactVisualHomeTagTitle/);
+  assert.doesNotMatch(visualSource, /agent\.aiTap|agent\.aiAction|adbTap/);
+  assert.match(openSource, /else if \(visualTapTarget\)/);
+  assert.match(openSource, /adbTap\(deviceId, visualTapTarget\)/);
+  assert.match(openSource, /HOME_TAG_VISUAL_OPEN_GUARD/);
 });
 
 test('tag model fast scan is content-driven and falls back inside one task', () => {

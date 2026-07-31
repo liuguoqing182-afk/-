@@ -57,6 +57,12 @@ import {
   tagTitleTextOnly,
 } from '../src/tag-title-text.mjs';
 import {
+  HOME_TAG_VISUAL_TITLES_KEY,
+  exactVisualHomeTagTitle,
+  homeTagTitleHasDecorativeSymbols,
+  safeVisualHomeTagTapTarget,
+} from '../src/home-tag-visual-reader.mjs';
+import {
   inspectMoreStyleModuleHierarchy,
 } from '../src/more-style-module-state.mjs';
 import {
@@ -75,6 +81,8 @@ const DEFAULT_DEVICE_ID = 'R38M805JQHM';
 const DEFAULT_PACKAGE = 'com.ai.polyverse.mirror';
 const DEFAULT_RUNNER_ROOT =
   'D:\\Users\\lgq\\自动化\\eagleclaw\\mcp-servers\\eagleclaw-Aimirror';
+const HOME_TAG_ENTRY_SWIPE_SETTLE_MS = 1_500;
+const TAG_VISUAL_READ_TIMEOUT_MS = 45_000;
 
 function parseArgs(argv) {
   const values = {};
@@ -249,6 +257,24 @@ async function aiQuery(agent, demand, timeoutMs = 60_000) {
       onAbortSettled: () => log('AI_QUERY_ABORT_SETTLED'),
       operation: (abortSignal) =>
         agent.aiQuery(demand, { abortSignal }),
+    }),
+  );
+}
+
+async function tagAiLocate(
+  agent,
+  prompt,
+  timeoutMs = TAG_VISUAL_READ_TIMEOUT_MS,
+) {
+  log(`TAG_AI_LOCATE ${prompt.replace(/\s+/g, ' ').slice(0, 140)}`);
+  return aiReadGate.run(() =>
+    runAbortableOperation({
+      label: 'tagAiLocate',
+      timeoutMs: Math.min(timeoutMs, TAG_HOME_RECOVERY_TIMEOUT_MS),
+      onAbortRequested: () => log('TAG_AI_LOCATE_ABORT_REQUESTED'),
+      onAbortSettled: () => log('TAG_AI_LOCATE_ABORT_SETTLED'),
+      operation: (abortSignal) =>
+        agent.aiLocate(prompt, { abortSignal }),
     }),
   );
 }
@@ -571,13 +597,13 @@ async function reverseVerticalSwipe(deviceId) {
   await sleep(2_500);
 }
 
-async function tagVerticalSwipe(deviceId) {
+async function tagVerticalSwipe(deviceId, settleMs = 2_000) {
   adb(
     deviceId,
     ['shell', 'input', 'swipe', '720', '2300', '720', '720', '700'],
     { timeout: 10_000 },
   );
-  await sleep(2_000);
+  await sleep(settleMs);
 }
 
 async function tagReverseVerticalSwipe(deviceId) {
@@ -1448,6 +1474,89 @@ async function runModelSearch(task, context) {
   return verdict;
 }
 
+function visualHomeTagReadEnabled(task) {
+  return (
+    task?.flow === 'HOME_TAG' &&
+    homeTagTitleHasDecorativeSymbols(task?.objectName)
+  );
+}
+
+async function readVisualHomeTagLocation(agent, task) {
+  if (!visualHomeTagReadEnabled(task)) return null;
+
+  let response;
+  try {
+    response = await aiQuery(
+      agent,
+      {
+        [HOME_TAG_VISUAL_TITLES_KEY]:
+          'Inspect only the visible section-title rows on the current AIMirror Home feed. Return every exact printed section title from top to bottom as one plain string separated by ||. Keep any printed leading decorative icon and trailing arrow. Exclude model-card names, navigation tabs, buttons, account text, and status text. Return an empty string if no section title is readable. This is read-only: do not click, tap, or scroll.',
+      },
+      TAG_VISUAL_READ_TIMEOUT_MS,
+    );
+  } catch (error) {
+    log(
+      `TAG_ENTRY_VISUAL_READ_UNAVAILABLE ${task.module} | ${task.objectName} | ${
+        error?.message || String(error)
+      }`,
+    );
+    return null;
+  }
+
+  const rawResponse = compactVisionResponse(response);
+  const matchedTitle = exactVisualHomeTagTitle(
+    response,
+    task.objectName,
+  );
+  log(
+    `TAG_ENTRY_VISUAL_READ ${task.module} | ${task.objectName} | matched=${
+      matchedTitle ? 'yes' : 'no'
+    } | raw=${rawResponse}`,
+  );
+  if (!matchedTitle) return null;
+
+  let locateResult;
+  try {
+    locateResult = await tagAiLocate(
+      agent,
+      `Locate the exact visible Home section title text ${matchedTitle}. It is a section-title row, not a model card, navigation tab, button, or account item. Read and locate only; do not click, tap, or scroll.`,
+      TAG_VISUAL_READ_TIMEOUT_MS,
+    );
+  } catch (error) {
+    throw new Error(
+      `AI read exact tag title ${matchedTitle} but could not locate it safely: ${
+        error?.message || String(error)
+      }`,
+    );
+  }
+
+  const tapTarget = safeVisualHomeTagTapTarget(locateResult);
+  if (!tapTarget) {
+    throw new Error(
+      `AI read exact tag title ${matchedTitle} but returned an unsafe title location`,
+    );
+  }
+  log(
+    `TAG_ENTRY_VISUAL_LOCATION ${task.module} | ${task.objectName} | text=${matchedTitle} | (${tapTarget.x},${tapTarget.y})`,
+  );
+  return {
+    source: 'ai-visual-text',
+    matchedTitle,
+    tapTarget,
+  };
+}
+
+async function visibleTagEntryMatch(agent, observation, task) {
+  if (exactSectionTitleVisible(observation.hierarchy, task.objectName)) {
+    return {
+      source: 'control-tree',
+      matchedTitle: task.objectName,
+      tapTarget: null,
+    };
+  }
+  return readVisualHomeTagLocation(agent, task);
+}
+
 async function findTagWithoutOpening(agent, deviceId, task) {
   const { module, objectName, flow } = task;
   const observe = async () => {
@@ -1458,13 +1567,16 @@ async function findTagWithoutOpening(agent, deviceId, task) {
     };
   };
   let observation = await observe();
-  if (exactSectionTitleVisible(observation.hierarchy, objectName)) {
+  let entryMatch = await visibleTagEntryMatch(agent, observation, task);
+  if (entryMatch) {
     log(
-      `TAG_ENTRY_FOUND ${module} | ${objectName} | direction=initial-top | swipe=0`,
+      `TAG_ENTRY_FOUND ${module} | ${objectName} | direction=initial-top | swipe=0 | via=${entryMatch.source}`,
     );
     await waitForTagLoadedImages(agent, TAG_HOME_RECOVERY_TIMEOUT_MS);
     return {
       lastObservation: observation,
+      visualTapTarget: entryMatch.tapTarget,
+      visualMatchedTitle: entryMatch.matchedTitle,
       stoppedAt: {
         direction: 'initial-top',
         swipeIndex: 0,
@@ -1481,7 +1593,12 @@ async function findTagWithoutOpening(agent, deviceId, task) {
   ) {
     // Gesture direction is named from the finger movement: finger up reveals
     // content farther down the tag list.
-    await tagVerticalSwipe(deviceId);
+    await tagVerticalSwipe(
+      deviceId,
+      flow === 'HOME_TAG'
+        ? HOME_TAG_ENTRY_SWIPE_SETTLE_MS
+        : undefined,
+    );
     observation = await observe();
     const signature = String(observation.signature ?? '');
     matchingSwipeReadCount =
@@ -1498,13 +1615,16 @@ async function findTagWithoutOpening(agent, deviceId, task) {
       `TAG_ENTRY_SCAN ${module} | ${objectName} | direction=finger-up | swipe=${swipeIndex}/${tagScanSwipeLimit()} | matching-text=${matchingSwipeReadCount}/${TAG_BOUNDARY_MATCHING_SWIPE_READS}`,
     );
 
-    if (exactSectionTitleVisible(observation.hierarchy, objectName)) {
+    entryMatch = await visibleTagEntryMatch(agent, observation, task);
+    if (entryMatch) {
       log(
-        `TAG_ENTRY_FOUND ${module} | ${objectName} | direction=finger-up | swipe=${swipeIndex}`,
+        `TAG_ENTRY_FOUND ${module} | ${objectName} | direction=finger-up | swipe=${swipeIndex} | via=${entryMatch.source}`,
       );
       await waitForTagLoadedImages(agent, TAG_HOME_RECOVERY_TIMEOUT_MS);
       return {
         lastObservation: observation,
+        visualTapTarget: entryMatch.tapTarget,
+        visualMatchedTitle: entryMatch.matchedTitle,
         stoppedAt: {
           direction: 'finger-up',
           swipeIndex,
@@ -1669,7 +1789,13 @@ function tagOpenGuardSatisfied(hierarchy, objectName, beforeSignature) {
   );
 }
 
-async function openTag(agent, deviceId, task, beforeHierarchy) {
+async function openTag(
+  agent,
+  deviceId,
+  task,
+  beforeHierarchy,
+  visualTapTarget = null,
+) {
   const { flow, objectName } = task;
   const visibleTitleText = tagTitleTextOnly(objectName) || objectName;
   const beforeSignature = pageTextSignature(beforeHierarchy);
@@ -1719,6 +1845,12 @@ async function openTag(agent, deviceId, task, beforeHierarchy) {
         `${flow}:tag-open-ai:${objectName}`,
       );
     }
+  } else if (visualTapTarget) {
+    adbTap(deviceId, visualTapTarget);
+    log(
+      `HOME_TAG_VISUAL_TEXT_TAP tag-title=${objectName} | (${visualTapTarget.x},${visualTapTarget.y})`,
+    );
+    await sleep(4_000);
   } else {
     await tagAiTap(
       agent,
@@ -1729,10 +1861,43 @@ async function openTag(agent, deviceId, task, beforeHierarchy) {
   await waitForTagLoadedImages(agent, TAG_HOME_RECOVERY_TIMEOUT_MS);
 
   const afterHierarchy = await readPageHierarchy(deviceId);
-  const titleStillVisible = exactSectionTitleVisible(
+  let titleStillVisible = exactSectionTitleVisible(
     afterHierarchy,
     objectName,
   );
+  if (
+    !titleStillVisible &&
+    flow === 'HOME_TAG' &&
+    visualTapTarget &&
+    homeTagTitleHasDecorativeSymbols(objectName)
+  ) {
+    try {
+      const response = await aiQuery(
+        agent,
+        {
+          [HOME_TAG_VISUAL_TITLES_KEY]:
+            'Read only the exact visible title of the currently opened AIMirror tag page. Keep any printed leading decorative icon and trailing arrow. Exclude model-card names, navigation tabs, buttons, account text, and status text. Return the title as plain text, or an empty string if it is not readable. Do not click, tap, or scroll.',
+        },
+        TAG_VISUAL_READ_TIMEOUT_MS,
+      );
+      const matchedTitle = exactVisualHomeTagTitle(
+        response,
+        objectName,
+      );
+      titleStillVisible = Boolean(matchedTitle);
+      log(
+        `HOME_TAG_VISUAL_OPEN_GUARD ${objectName} | matched=${
+          matchedTitle ? 'yes' : 'no'
+        } | raw=${compactVisionResponse(response)}`,
+      );
+    } catch (error) {
+      log(
+        `HOME_TAG_VISUAL_OPEN_GUARD_UNAVAILABLE ${objectName} | ${
+          error?.message || String(error)
+        }`,
+      );
+    }
+  }
   const pageChanged =
     Boolean(beforeSignature) &&
     pageTextSignature(afterHierarchy) !== beforeSignature;
@@ -1799,6 +1964,7 @@ async function runRegularTag(task, context) {
     deviceId,
     task,
     tagLocation.lastObservation.hierarchy,
+    tagLocation.visualTapTarget,
   );
   await captureCheckpoint(2);
 
