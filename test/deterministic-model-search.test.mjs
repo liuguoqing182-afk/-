@@ -17,6 +17,7 @@ import {
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
+  shouldRetryModelSearchBusinessFailure,
 } from '../src/deterministic-model-search.mjs';
 
 function verdict({
@@ -44,6 +45,52 @@ test('uses the final 100-second result window and three execution attempts', () 
   assert.equal(MODEL_SEARCH_RESULT_TIMEOUT_MS, 100_000);
   assert.equal(MODEL_SEARCH_ATTEMPT_TIMEOUT_MS, 110_000);
   assert.equal(MODEL_SEARCH_EXECUTION_ATTEMPT_MAX, 3);
+});
+
+test('retries every model-search business failure before the final attempt', () => {
+  assert.equal(
+    shouldRetryModelSearchBusinessFailure({
+      flow: 'MODEL_SEARCH',
+      businessVerdict: 'FAIL',
+      attempt: 1,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRetryModelSearchBusinessFailure({
+      flow: 'MODEL_SEARCH',
+      businessVerdict: 'FAIL',
+      attempt: 2,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRetryModelSearchBusinessFailure({
+      flow: 'MODEL_SEARCH',
+      businessVerdict: 'FAIL',
+      attempt: 3,
+    }),
+    false,
+  );
+});
+
+test('does not retry passing searches or non-search tag verdicts', () => {
+  assert.equal(
+    shouldRetryModelSearchBusinessFailure({
+      flow: 'MODEL_SEARCH',
+      businessVerdict: 'PASS',
+      attempt: 1,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRetryModelSearchBusinessFailure({
+      flow: 'HOME_TAG',
+      businessVerdict: 'FAIL',
+      attempt: 1,
+    }),
+    false,
+  );
 });
 
 test('selects the top-right Search trigger and the editable search field', () => {

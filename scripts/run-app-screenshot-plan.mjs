@@ -30,6 +30,7 @@ import {
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
+  shouldRetryModelSearchBusinessFailure,
 } from '../src/deterministic-model-search.mjs';
 import {
   evaluateTagModelAssertions,
@@ -2317,6 +2318,21 @@ try {
         attemptRecord.verdictReasonCode = taskOutcome.verdictReasonCode;
         attemptRecord.verdictReason = taskOutcome.verdictReason;
         attemptRecord.evidence = taskOutcome.evidence ?? null;
+
+        if (
+          shouldRetryModelSearchBusinessFailure({
+            flow: task.flow,
+            businessVerdict: taskOutcome.businessVerdict,
+            attempt,
+          })
+        ) {
+          throw new Error(
+            'model search business failure requires retry: ' +
+              (taskOutcome.verdictReasonCode ?? 'MODEL_SEARCH_FAILED') +
+              ' | ' +
+              (taskOutcome.verdictReason ?? 'model search did not pass'),
+          );
+        }
 
         if (attemptRecord.screenshots.length < task.screenshotTotal) {
           throw new Error(

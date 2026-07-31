@@ -8,6 +8,22 @@ export const MODEL_SEARCH_ATTEMPT_TIMEOUT_MS = 110_000;
 export const MODEL_SEARCH_OPERATION_TIMEOUT_MS = 10_000;
 export const MODEL_SEARCH_BACK_PRESS_COUNT = 3;
 
+export function shouldRetryModelSearchBusinessFailure({
+  flow,
+  businessVerdict,
+  attempt,
+  maxAttempts = MODEL_SEARCH_EXECUTION_ATTEMPT_MAX,
+}) {
+  return (
+    flow === 'MODEL_SEARCH' &&
+    businessVerdict === 'FAIL' &&
+    Number.isInteger(attempt) &&
+    Number.isInteger(maxAttempts) &&
+    attempt > 0 &&
+    attempt < maxAttempts
+  );
+}
+
 const FINAL_IMAGE_STATES = new Set(['LOADED', 'VALID', 'MISSING']);
 const WAITABLE_IMAGE_STATES = new Set(['LOADING', 'PLACEHOLDER']);
 const READABLE_IMAGE_STATES = new Set([
