@@ -37,10 +37,12 @@ test('non-ASCII model names use Base64 Unicode IME input and always restore the 
   assert.match(source, /requiresAdbUnicodeInput/);
   assert.match(source, /encodeAdbInputText/);
   assert.match(source, /ADB_UNICODE_INPUT_METHOD/);
+  assert.match(source, /ADB_CLEAR_TEXT/);
   assert.match(source, /ADB_INPUT_B64/);
   assert.match(source, /encodeAdbUnicodeInput/);
   assert.match(source, /finally/);
   assert.match(source, /restoreInputMethod/);
+  assert.ok(source.indexOf('ADB_CLEAR_TEXT') < source.indexOf('ADB_INPUT_B64'));
 });
 
 test('AI query is abortable and exclusive so retries cannot overlap', () => {

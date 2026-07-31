@@ -1457,6 +1457,16 @@ function inputModelSearchText(deviceId, modelName) {
   try {
     setInputMethod(deviceId, ADB_UNICODE_INPUT_METHOD);
     switched = true;
+    const clearOutput = adb(
+      deviceId,
+      ['shell', 'am', 'broadcast', '-a', 'ADB_CLEAR_TEXT'],
+      { timeout: 5_000 },
+    );
+    if (!/Broadcast completed:/u.test(clearOutput)) {
+      throw new Error(
+        `Unicode model search clear broadcast did not complete: ${clearOutput.trim()}`,
+      );
+    }
     const output = adb(
       deviceId,
       [
