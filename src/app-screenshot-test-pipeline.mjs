@@ -12,6 +12,7 @@ import { planAppScreenshotTasks } from './app-screenshot-task-planner.mjs';
 import { parsePublishNotification } from './message-parser.mjs';
 
 const execFileAsync = promisify(execFile);
+export const MAX_PIPELINE_FAILURE_COUNT = 2;
 
 function safePathSegment(value) {
   return String(value ?? '')
@@ -65,6 +66,39 @@ export function summarizeIncompleteScreenshotTasks(execution) {
         ),
       };
     });
+}
+
+export function previousPipelineSkipReason(previousStatus) {
+  if (
+    previousStatus?.state === 'DELIVERED' ||
+    previousStatus?.state === 'DELIVERED_WITH_INCOMPLETE'
+  ) {
+    return 'ALREADY_DELIVERED';
+  }
+  if (
+    previousStatus?.state === 'FAILED_RETRY_EXHAUSTED' ||
+    Number(previousStatus?.failureCount) >= MAX_PIPELINE_FAILURE_COUNT
+  ) {
+    return 'FAILED_RETRY_EXHAUSTED';
+  }
+  return null;
+}
+
+export function previousPipelineFailureCount(previousStatus) {
+  const storedCount = Number(previousStatus?.failureCount);
+  if (Number.isSafeInteger(storedCount) && storedCount >= 0) {
+    return storedCount;
+  }
+  return previousStatus?.state === 'FAILED' ? 1 : 0;
+}
+
+export function nextPipelineFailureOutcome(previousStatus) {
+  const failureCount = previousPipelineFailureCount(previousStatus) + 1;
+  return {
+    failureCount,
+    retryExhausted: failureCount >= MAX_PIPELINE_FAILURE_COUNT,
+    manualReviewRequired: failureCount >= MAX_PIPELINE_FAILURE_COUNT,
+  };
 }
 
 async function runProcess(command, args, options = {}) {
@@ -163,21 +197,12 @@ export class AppScreenshotTestPipeline {
     );
     const statusPath = path.join(releaseDir, 'pipeline-status.json');
     const previousStatus = await readJsonIfExists(statusPath);
-    if (
-      previousStatus?.state === 'DELIVERED' ||
-      previousStatus?.state === 'DELIVERED_WITH_INCOMPLETE'
-    ) {
+    const previousFailureCount = previousPipelineFailureCount(previousStatus);
+    const previousSkipReason = previousPipelineSkipReason(previousStatus);
+    if (previousSkipReason) {
       return {
         skipped: true,
-        reason: 'ALREADY_DELIVERED',
-        messageId,
-        releaseDir,
-      };
-    }
-    if (previousStatus?.state === 'FAILED') {
-      return {
-        skipped: true,
-        reason: 'PREVIOUSLY_FAILED',
+        reason: previousSkipReason,
         messageId,
         releaseDir,
       };
@@ -211,6 +236,8 @@ export class AppScreenshotTestPipeline {
         releaseDir,
         startedAt,
         updatedAt: new Date().toISOString(),
+        pipelineAttempt: previousFailureCount + 1,
+        failureCount: previousFailureCount,
         ...extra,
       });
     };
@@ -378,10 +405,25 @@ export class AppScreenshotTestPipeline {
         deliveryMessageId: receipt?.messageId ?? null,
       };
     } catch (error) {
-      await updateStatus('FAILED', {
+      const failureOutcome = nextPipelineFailureOutcome(previousStatus);
+      const failureState = failureOutcome.retryExhausted
+        ? 'FAILED_RETRY_EXHAUSTED'
+        : 'FAILED';
+      await updateStatus(failureState, {
         failedAt: new Date().toISOString(),
+        ...failureOutcome,
         error: error?.stack || error?.message || String(error),
       }).catch(() => {});
+      if (failureOutcome.retryExhausted) {
+        return {
+          skipped: false,
+          terminalFailure: true,
+          manualReviewRequired: true,
+          messageId,
+          releaseDir,
+          ...failureOutcome,
+        };
+      }
       throw error;
     } finally {
       this.activeMessageIds.delete(messageId);

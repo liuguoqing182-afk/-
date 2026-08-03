@@ -5,7 +5,16 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pollerPath = Join-Path $projectRoot 'src\feishu-app-screenshot-test-poller.mjs'
 $formalMode = $env:AM_APP_SCREENSHOT_REPORT_TARGET -eq 'FORMAL_GROUP'
-$logName = if ($formalMode) { 'formal' } else { 'test' }
+$formalReviewMode =
+  !$formalMode -and
+  ![string]::IsNullOrWhiteSpace($env:AM_APP_SCREENSHOT_SOURCE_CHAT_ID)
+$logName = if ($formalMode) {
+  'formal'
+} elseif ($formalReviewMode) {
+  'formal-review'
+} else {
+  'test'
+}
 $taskLogPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller-task.log')
 $stdoutPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.stdout.log')
 $stderrPath = Join-Path $projectRoot ('app-screenshot-' + $logName + '-poller.stderr.log')

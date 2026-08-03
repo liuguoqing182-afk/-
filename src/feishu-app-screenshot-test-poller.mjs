@@ -75,7 +75,22 @@ if (
 const reportChatId = formalGroupOutputEnabled
   ? formalChatId
   : testChatId;
-const modeLabel = formalGroupOutputEnabled ? 'formal' : 'test';
+const sourceChatId = String(
+  process.env.AM_APP_SCREENSHOT_SOURCE_CHAT_ID ?? reportChatId,
+).trim();
+if (sourceChatId !== formalChatId && sourceChatId !== testChatId) {
+  throw new Error(
+    'AM_APP_SCREENSHOT_SOURCE_CHAT_ID must match FEISHU_CHAT_ID or FEISHU_TEST_CHAT_ID',
+  );
+}
+const formalGroupSourceEnabled = sourceChatId === formalChatId;
+const formalReviewEnabled =
+  formalGroupSourceEnabled && !formalGroupOutputEnabled;
+const modeLabel = formalGroupOutputEnabled
+  ? 'formal'
+  : formalReviewEnabled
+    ? 'formal-review'
+    : 'test';
 const intervalMs = positiveEnvironment(
   'AM_APP_SCREENSHOT_POLL_INTERVAL_MS',
   Number(
@@ -99,7 +114,7 @@ const statePath = path.resolve(
   process.env.AM_APP_SCREENSHOT_POLL_STATE_PATH ??
     path.join(
       'data-app-screenshot',
-      formalGroupOutputEnabled
+      formalGroupSourceEnabled
         ? 'formal-group-poller-state.json'
         : 'test-group-poller-state.json',
     ),
@@ -108,12 +123,15 @@ const messageIdPath = path.resolve(
   process.env.AM_APP_SCREENSHOT_MESSAGE_ID_PATH ??
     path.join(
       'data-app-screenshot',
-      formalGroupOutputEnabled
+      formalGroupSourceEnabled
         ? 'formal-group-processed-message-ids.json'
         : 'test-group-processed-message-ids.json',
     ),
 );
 const runOnce = process.argv.includes('--once');
+let retryMessageId = String(
+  process.env.AM_APP_SCREENSHOT_RETRY_MESSAGE_ID ?? '',
+).trim();
 
 const client = new Lark.Client({ appId, appSecret });
 if (client.httpInstance?.defaults) {
@@ -121,7 +139,7 @@ if (client.httpInstance?.defaults) {
 }
 const stateStore = new FileHistoryPollStateStore(statePath);
 const deduplicator = new FileMessageIdDeduplicator(messageIdPath, {
-  chatId: reportChatId,
+  chatId: sourceChatId,
 });
 const pipeline = new AppScreenshotTestPipeline({
   root,
@@ -129,7 +147,10 @@ const pipeline = new AppScreenshotTestPipeline({
 });
 
 async function safeFailureMessage(candidate, error) {
-  if (!shouldSendAppScreenshotFailureNotification(reportTarget)) {
+  if (
+    formalGroupSourceEnabled ||
+    !shouldSendAppScreenshotFailureNotification(reportTarget)
+  ) {
     console.error(
       '[app-screenshot:formal] failure notification suppressed; final reports only:',
       candidate.messageId,
@@ -165,18 +186,28 @@ async function poll() {
   };
   const result = await pollFeishuHistoryOnce({
     client,
-    chatId: reportChatId,
+    chatId: sourceChatId,
     stateStore,
     initialLookbackMs,
     overlapMs: 60_000,
     handleMessages: async (messages) => {
-      const candidates = findAIMirrorPublishMessages(messages).filter(
+      const timeEligibleCandidates = findAIMirrorPublishMessages(messages).filter(
         (candidate) =>
           isHistoryCandidateCreatedAtOrAfter(
             candidate,
             acceptAfterMilliseconds,
           ),
       );
+      const candidates = retryMessageId
+        ? timeEligibleCandidates.filter(
+            (candidate) => candidate.messageId === retryMessageId,
+          )
+        : timeEligibleCandidates;
+      if (retryMessageId && candidates.length === 0) {
+        throw new Error(
+          `retry message was not found in the poll window: ${retryMessageId}`,
+        );
+      }
       const dispatched = await dispatchUniqueMessages({
         messages: candidates,
         deduplicator,
@@ -218,6 +249,9 @@ async function poll() {
     statePath,
     messageIdPath,
   });
+  if (retryMessageId && (stats.processed > 0 || stats.duplicates > 0)) {
+    retryMessageId = '';
+  }
 }
 
 async function runPollSafely() {
@@ -232,7 +266,11 @@ async function runPollSafely() {
 }
 
 console.log('[app-screenshot:' + modeLabel + '] poller started:', {
+  sourceChatId,
+  reportChatId,
   reportTarget,
+  formalReviewEnabled,
+  retryMessageId: retryMessageId || null,
   intervalMs,
   initialLookbackMs,
   requestTimeoutMs,
