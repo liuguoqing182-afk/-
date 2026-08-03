@@ -24,6 +24,16 @@ export function shouldRetryModelSearchBusinessFailure({
   );
 }
 
+export function shouldRestartModelSearchAppBeforeAttempt({
+  flow,
+  attempt,
+}) {
+  return (
+    flow === 'MODEL_SEARCH' &&
+    attempt === MODEL_SEARCH_EXECUTION_ATTEMPT_MAX
+  );
+}
+
 const FINAL_IMAGE_STATES = new Set(['LOADED', 'VALID', 'MISSING']);
 const WAITABLE_IMAGE_STATES = new Set(['LOADING', 'PLACEHOLDER']);
 const READABLE_IMAGE_STATES = new Set([

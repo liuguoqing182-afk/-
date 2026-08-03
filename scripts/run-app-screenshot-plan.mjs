@@ -30,6 +30,7 @@ import {
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
+  shouldRestartModelSearchAppBeforeAttempt,
   shouldRetryModelSearchBusinessFailure,
 } from '../src/deterministic-model-search.mjs';
 import {
@@ -1534,26 +1535,54 @@ function inputModelSearchText(deviceId, modelName) {
   }
 }
 
-async function normalizeModelSearchPage(deviceId, packageName, deadline) {
+async function normalizeModelSearchPage(
+  deviceId,
+  packageName,
+  deadline,
+  attempt,
+) {
   wakeAndBringToFront(deviceId, packageName);
   await sleep(800);
-  for (let index = 0; index < MODEL_SEARCH_BACK_PRESS_COUNT; index += 1) {
-    adb(
-      deviceId,
-      ['shell', 'input', 'keyevent', 'BACK'],
-      { timeout: 3_000 },
+  if (attempt === 2) {
+    for (let index = 0; index < MODEL_SEARCH_BACK_PRESS_COUNT; index += 1) {
+      adb(
+        deviceId,
+        ['shell', 'input', 'keyevent', 'BACK'],
+        { timeout: 3_000 },
+      );
+      await sleep(200);
+    }
+    wakeAndBringToFront(deviceId, packageName);
+    await sleep(800);
+    log(
+      `MODEL_SEARCH_SECOND_ATTEMPT_PAGE_RESET backs=${MODEL_SEARCH_BACK_PRESS_COUNT}`,
     );
-    await sleep(200);
   }
-  wakeAndBringToFront(deviceId, packageName);
-  await sleep(800);
   assertModelSearchOperationTime(deadline, 'page normalization');
 }
 
+async function restartAppForThirdModelSearchAttempt(
+  deviceId,
+  packageName,
+) {
+  adb(deviceId, ['shell', 'am', 'force-stop', packageName], {
+    timeout: 5_000,
+  });
+  log(
+    `MODEL_SEARCH_APP_RESTART attempt=${MODEL_SEARCH_EXECUTION_ATTEMPT_MAX} force-stopped ${packageName}`,
+  );
+  await sleep(800);
+  wakeAndBringToFront(deviceId, packageName);
+  log(
+    `MODEL_SEARCH_APP_RESTART attempt=${MODEL_SEARCH_EXECUTION_ATTEMPT_MAX} relaunched ${packageName}; next=FIRST_ATTEMPT_FLOW`,
+  );
+  await sleep(10_000);
+}
+
 async function performModelSearch(task, context) {
-  const { deviceId, packageName } = context;
+  const { deviceId, packageName, attempt } = context;
   const deadline = modelSearchOperationDeadline();
-  await normalizeModelSearchPage(deviceId, packageName, deadline);
+  await normalizeModelSearchPage(deviceId, packageName, deadline, attempt);
 
   const screenSize = parsePhysicalScreenSize(
     adb(deviceId, ['shell', 'wm', 'size'], { timeout: 3_000 }),
@@ -1803,6 +1832,21 @@ async function restartAppForTagAttempt(deviceId, packageName) {
   await sleep(800);
   // recoverHome launches the stopped package and confirms Home from the
   // control tree. A fresh launch resets every tag list to its page-top.
+}
+
+async function restartAppForReleaseInspection(
+  deviceId,
+  packageName,
+  firstTaskFlow,
+) {
+  adb(deviceId, ['shell', 'am', 'force-stop', packageName], {
+    timeout: 5_000,
+  });
+  log(`RELEASE_INSPECTION_APP_RESTART force-stopped ${packageName}`);
+  await sleep(800);
+  wakeAndBringToFront(deviceId, packageName);
+  log(`RELEASE_INSPECTION_APP_RESTART relaunched ${packageName}`);
+  await sleep(firstTaskFlow === 'MODEL_SEARCH' ? 10_000 : 4_000);
 }
 
 async function assertTagModuleVisible(deviceId, flow) {
@@ -2228,6 +2272,11 @@ try {
   agent = await agentFromAdbDevice(deviceId, {
     autoDismissKeyboard: false,
   });
+  await restartAppForReleaseInspection(
+    deviceId,
+    packageName,
+    plan.tasks[0]?.flow,
+  );
 
   for (let taskIndex = 0; taskIndex < plan.tasks.length; taskIndex += 1) {
     const task = plan.tasks[taskIndex];
@@ -2307,7 +2356,20 @@ try {
       };
 
       try {
+        if (
+          shouldRestartModelSearchAppBeforeAttempt({
+            flow: task.flow,
+            attempt,
+          })
+        ) {
+          await restartAppForThirdModelSearchAttempt(
+            deviceId,
+            packageName,
+          );
+        }
+
         const taskOutcome = await executeTask(task, {
+          attempt,
           agent,
           deviceId,
           packageName,

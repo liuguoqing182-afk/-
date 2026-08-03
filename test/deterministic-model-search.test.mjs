@@ -17,6 +17,7 @@ import {
   parsePhysicalScreenSize,
   requiresAdbUnicodeInput,
   resolveModelSearchAtDeadline,
+  shouldRestartModelSearchAppBeforeAttempt,
   shouldRetryModelSearchBusinessFailure,
 } from '../src/deterministic-model-search.mjs';
 
@@ -68,6 +69,37 @@ test('retries every model-search business failure before the final attempt', () 
     shouldRetryModelSearchBusinessFailure({
       flow: 'MODEL_SEARCH',
       businessVerdict: 'FAIL',
+      attempt: 3,
+    }),
+    false,
+  );
+});
+
+test('restarts only before the third model-search attempt', () => {
+  assert.equal(
+    shouldRestartModelSearchAppBeforeAttempt({
+      flow: 'MODEL_SEARCH',
+      attempt: 1,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRestartModelSearchAppBeforeAttempt({
+      flow: 'MODEL_SEARCH',
+      attempt: 2,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRestartModelSearchAppBeforeAttempt({
+      flow: 'MODEL_SEARCH',
+      attempt: 3,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRestartModelSearchAppBeforeAttempt({
+      flow: 'HOME_TAG',
       attempt: 3,
     }),
     false,

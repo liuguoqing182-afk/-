@@ -97,23 +97,87 @@ test('model-search absence requires two consecutive explicit no-result reads', (
   assert.match(source, /MODEL_SEARCH_POLL_INTERVAL_MS/);
 });
 
-test('model search never force-stops or restarts the App process', () => {
-  const source = functionSource(
-    'async function executeTask',
-    'const args = parseArgs',
+test('only the second model-search attempt uses the three-BACK page reset', () => {
+  const normalizeSource = functionSource(
+    'async function normalizeModelSearchPage',
+    'async function restartAppForThirdModelSearchAttempt',
   );
-  const tagBranchStart = source.search(
-    /\r?\n\r?\n  if \(isTagFlow\(task\.flow\)\)/,
+  assert.match(normalizeSource, /if \(attempt === 2\)/);
+  assert.match(normalizeSource, /MODEL_SEARCH_BACK_PRESS_COUNT/);
+  assert.match(normalizeSource, /MODEL_SEARCH_SECOND_ATTEMPT_PAGE_RESET/);
+
+  const performSource = functionSource(
+    'async function performModelSearch',
+    'async function findTagWithoutOpening',
   );
-  assert.notEqual(tagBranchStart, -1);
-  const modelBranch = source.slice(
-    source.indexOf("if (task.flow === 'MODEL_SEARCH')"),
-    tagBranchStart,
+  assert.match(
+    performSource,
+    /normalizeModelSearchPage\(deviceId, packageName, deadline, attempt\)/,
   );
-  assert.match(modelBranch, /return runModelSearch\(task, context\)/);
+});
+
+test('third model search force-stops and relaunches the App, then reuses the first-attempt flow', () => {
+  const restartHelper = functionSource(
+    'async function restartAppForThirdModelSearchAttempt',
+    'async function performModelSearch',
+  );
+  assert.match(
+    restartHelper,
+    /'am', 'force-stop', packageName/,
+  );
+  assert.match(restartHelper, /MODEL_SEARCH_APP_RESTART/);
+  assert.match(restartHelper, /wakeAndBringToFront\(deviceId, packageName\)/);
+  assert.match(restartHelper, /next=FIRST_ATTEMPT_FLOW/);
   assert.doesNotMatch(
-    modelBranch,
-    /recoverHome|wakeAndBringToFront|restartAppForTagAttempt/,
+    restartHelper,
+    /keyevent.*BACK|MODEL_SEARCH_BACK_PRESS_COUNT/,
+  );
+
+  const attemptLoop = functionSource(
+    'attempt <= MODEL_SEARCH_EXECUTION_ATTEMPT_MAX;',
+    '} finally {',
+  );
+  assert.match(
+    attemptLoop,
+    /shouldRestartModelSearchAppBeforeAttempt\(\{[\s\S]*?flow: task\.flow,[\s\S]*?attempt/,
+  );
+  assert.match(
+    attemptLoop,
+    /await restartAppForThirdModelSearchAttempt\([\s\S]*?deviceId,[\s\S]*?packageName/,
+  );
+  assert.ok(
+    attemptLoop.indexOf('await restartAppForThirdModelSearchAttempt(') <
+      attemptLoop.indexOf('const taskOutcome = await executeTask('),
+  );
+  assert.match(
+    attemptLoop,
+    /const taskOutcome = await executeTask\(task, \{[\s\S]*?attempt,/,
+  );
+});
+
+test('each release inspection force-stops and relaunches the App once before the first task', () => {
+  const restartHelper = functionSource(
+    'async function restartAppForReleaseInspection',
+    'async function assertTagModuleVisible',
+  );
+  assert.match(restartHelper, /'am', 'force-stop', packageName/);
+  assert.match(restartHelper, /wakeAndBringToFront\(deviceId, packageName\)/);
+  assert.match(restartHelper, /RELEASE_INSPECTION_APP_RESTART/);
+  assert.match(
+    restartHelper,
+    /firstTaskFlow === 'MODEL_SEARCH' \? 10_000 : 4_000/,
+  );
+
+  const executionSource = functionSource('let agent;', '} finally {');
+  const restartCall = 'await restartAppForReleaseInspection(';
+  assert.equal(executionSource.split(restartCall).length - 1, 1);
+  assert.ok(
+    executionSource.indexOf(restartCall) <
+      executionSource.indexOf('for (let taskIndex = 0;'),
+  );
+  assert.match(
+    executionSource,
+    /restartAppForReleaseInspection\([\s\S]*?plan\.tasks\[0\]\?\.flow/,
   );
 });
 
