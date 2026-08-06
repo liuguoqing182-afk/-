@@ -39,6 +39,9 @@ import {
   uniqueVisibleModelNames,
 } from '../src/tag-model-verdict.mjs';
 import {
+  shouldRetryNewHomeNameCollectionIncomplete,
+} from '../src/new-home-retry-policy.mjs';
+import {
   APP_SCREENSHOT_REPORT_TARGETS,
   normalizeAppScreenshotReportTarget,
 } from '../src/app-screenshot-report-target.mjs';
@@ -2380,6 +2383,22 @@ try {
         attemptRecord.verdictReasonCode = taskOutcome.verdictReasonCode;
         attemptRecord.verdictReason = taskOutcome.verdictReason;
         attemptRecord.evidence = taskOutcome.evidence ?? null;
+
+        if (
+          shouldRetryNewHomeNameCollectionIncomplete({
+            module: task.module,
+            objectName: task.objectName,
+            businessVerdict: taskOutcome.businessVerdict,
+            verdictReasonCode: taskOutcome.verdictReasonCode,
+            attempt,
+          })
+        ) {
+          throw new Error(
+            'New home tag name collection incomplete requires one retry: ' +
+              (taskOutcome.verdictReason ??
+                'tag model name collection was incomplete'),
+          );
+        }
 
         if (
           shouldRetryModelSearchBusinessFailure({
