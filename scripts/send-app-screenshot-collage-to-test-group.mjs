@@ -5,10 +5,26 @@ import {
   APP_SCREENSHOT_REPORT_TARGETS,
   normalizeAppScreenshotReportTarget,
 } from '../src/app-screenshot-report-target.mjs';
+import {
+  assertFormalAppScreenshotDelivery,
+  FORMAL_APP_SCREENSHOT_MESSAGE_TYPE,
+} from '../src/app-screenshot-formal-delivery-policy.mjs';
 
 const TOKEN_URL = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal';
 const IMAGE_URL = 'https://open.feishu.cn/open-apis/im/v1/images';
 const MESSAGE_URL = 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id';
+const delay = (milliseconds) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
 
 function parseArgs(values) {
   const parsed = {};
@@ -143,9 +159,43 @@ if (
 const destinationChatId = formalGroupOutputEnabled
   ? formalChatId
   : testChatId;
+const reportTitle = String(args['report-title'] ?? '').trim();
+assertFormalAppScreenshotDelivery({
+  destinationChatId,
+  formalChatId,
+  messageType: FORMAL_APP_SCREENSHOT_MESSAGE_TYPE,
+  reportTitle,
+  sendEnabled: process.env.AM_APP_SCREENSHOT_FORMAL_SEND_ENABLED,
+  confirmedChatId: process.env.AM_APP_SCREENSHOT_FORMAL_CHAT_ID_CONFIRMATION,
+});
 
 const imagePath = path.resolve(args.image);
 const receiptPath = path.resolve(args.receipt);
+const releaseDir = path.dirname(receiptPath);
+const deliveryHoldPath = path.join(releaseDir, 'formal-group-delivery.hold.json');
+const deliveryApprovalPath = path.join(releaseDir, 'formal-group-delivery.approved.json');
+
+if (
+  formalGroupOutputEnabled &&
+  (await fileExists(deliveryHoldPath)) &&
+  !(await fileExists(deliveryApprovalPath))
+) {
+  console.log(JSON.stringify({
+    heldForUserConfirmation: true,
+    target: reportTarget,
+    holdPath: deliveryHoldPath,
+    approvalPath: deliveryApprovalPath,
+  }));
+  while (!(await fileExists(deliveryApprovalPath))) {
+    await delay(2_000);
+  }
+  console.log(JSON.stringify({
+    userConfirmationReceived: true,
+    target: reportTarget,
+    approvalPath: deliveryApprovalPath,
+  }));
+}
+
 const fileData = await fs.readFile(imagePath);
 if (fileData.length > 10 * 1024 * 1024) {
   throw new Error(`Image exceeds 10 MiB: ${fileData.length} bytes`);

@@ -143,6 +143,27 @@ test('sends text through the Feishu bot API to the supplied chat only', async ()
   });
 });
 
+test('refuses a direct text send outside the allowed test chat', async () => {
+  let sendCalls = 0;
+  const client = {
+    im: { v1: { message: { create: async () => {
+      sendCalls += 1;
+      return { code: 0 };
+    } } } },
+  };
+
+  await assert.rejects(
+    sendFeishuTextMessage({
+      client,
+      receiveId: 'oc_release',
+      allowedReceiveId: 'oc_test',
+      text: 'must not send',
+    }),
+    /refusing to send report outside the allowed test chat/u,
+  );
+  assert.equal(sendCalls, 0);
+});
+
 test('refuses a persisted report that targets anything except the test group', async (context) => {
   const filePath = await temporaryOutbox(context);
   const outbox = new FileFeishuReportOutbox(filePath, { now: () => 1000 });

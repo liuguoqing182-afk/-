@@ -57,10 +57,12 @@ def args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--execution', action='append', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--title', default='AIMirror首屏配置发布自动化检测报告！')
     parser.add_argument('--operator', default='')
     parser.add_argument('--release', default='DEV → PRO')
     parser.add_argument('--app-version', default='')
     parser.add_argument('--message-id', default='')
+    parser.add_argument('--diagnostic-note-file', default='')
     return parser.parse_args()
 
 def safe_file_segment(value: str):
@@ -345,6 +347,18 @@ def wrap_text(draw, text: str, font, max_width: int):
         lines.append(current)
     return lines or ['']
 
+def diagnostic_note_lines(options, draw):
+    note_file = str(getattr(options, 'diagnostic_note_file', '') or '').strip()
+    if not note_file:
+        return []
+    note = Path(note_file).read_text(encoding='utf-8-sig')
+    lines = []
+    for source_line in note.splitlines():
+        source_line = source_line.strip()
+        if source_line:
+            lines.extend(wrap_text(draw, source_line, F_META, WIDTH - 2 * MARGIN - 20))
+    return lines
+
 def render(options, tasks):
     groups = grouped(tasks)
     stats = screenshot_summary(tasks)
@@ -354,12 +368,18 @@ def render(options, tasks):
     wrapped_problems = []
     for index, problem in enumerate(problems, start=1):
         wrapped_problems.extend(wrap_text(measure, f'{index}. {problem}', F_META, WIDTH - 2 * MARGIN - 20))
+    diagnostic_lines = diagnostic_note_lines(options, measure)
     header_height = 350
+    header_cursor = 326
+    if diagnostic_lines:
+        header_cursor += 38 + len(diagnostic_lines) * 32 + 24
     if wrapped_problems:
-        header_height = 380 + len(wrapped_problems) * 32
+        header_cursor += 38 + len(wrapped_problems) * 32
+    if diagnostic_lines or wrapped_problems:
+        header_height = header_cursor + 16
     canvas = Image.new('RGB', (WIDTH, total_height(groups, header_height)), BG)
     draw = ImageDraw.Draw(canvas)
-    draw.text((MARGIN, 34), 'AIMirror 首屏配置发布自动化检测报告', fill=WHITE, font=F_TITLE)
+    draw.text((MARGIN, 34), options.title, fill=WHITE, font=F_TITLE)
     verdict_text = f'自动判断：通过 {verdicts["PASS"]}｜不通过 {verdicts["FAIL"]}｜执行异常 {verdicts["ERROR"]}'
     verdict_fill = VERDICT_COLORS['FAIL'] if verdicts['FAIL'] else (VERDICT_COLORS['ERROR'] if verdicts['ERROR'] else ACCENT)
     draw.text((MARGIN, 100), verdict_text, fill=verdict_fill, font=F_TITLE)
@@ -373,9 +393,17 @@ def render(options, tasks):
     draw.text((MARGIN, 249), '说明：模板及标签模型名称自动比对；单项失败不阻断总图；异常现场标注“截图未完成”。', fill=SECONDARY, font=F_META)
     if options.message_id:
         draw.text((MARGIN, 290), f'message_id：{options.message_id}', fill='#777777', font=get_font(18))
+    section_y = 326
+    if diagnostic_lines:
+        draw.text((MARGIN, section_y), '独立网络诊断（不计入巡检判定）', fill=COLORS['新首页配置'], font=F_SUB)
+        section_y += 38
+        for line in diagnostic_lines:
+            draw.text((MARGIN + 14, section_y), line, fill=WHITE, font=F_META)
+            section_y += 32
+        section_y += 24
     if wrapped_problems:
-        draw.text((MARGIN, 326), '问题摘要（不阻断总图输出）', fill=VERDICT_COLORS['ERROR'], font=F_SUB)
-        problem_y = 364
+        draw.text((MARGIN, section_y), '问题摘要（不阻断总图输出）', fill=VERDICT_COLORS['ERROR'], font=F_SUB)
+        problem_y = section_y + 38
         for line in wrapped_problems:
             draw.text((MARGIN + 14, problem_y), line, fill=WHITE, font=F_META)
             problem_y += 32

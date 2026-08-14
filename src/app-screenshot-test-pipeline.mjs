@@ -8,6 +8,7 @@ import {
   isFormalAppScreenshotTarget,
   normalizeAppScreenshotReportTarget,
 } from './app-screenshot-report-target.mjs';
+import { FORMAL_APP_SCREENSHOT_REPORT_TITLE } from './app-screenshot-formal-delivery-policy.mjs';
 import { planAppScreenshotTasks } from './app-screenshot-task-planner.mjs';
 import { parsePublishNotification } from './message-parser.mjs';
 
@@ -337,6 +338,8 @@ export class AppScreenshotTestPipeline {
           executionPath,
           '--output',
           collagePath,
+          '--title',
+          FORMAL_APP_SCREENSHOT_REPORT_TITLE,
           '--operator',
           plan.operator || '—',
           '--release',
@@ -374,6 +377,8 @@ export class AppScreenshotTestPipeline {
           this.root,
           '--target',
           this.reportTarget,
+          '--report-title',
+          FORMAL_APP_SCREENSHOT_REPORT_TITLE,
         ],
         {
           cwd: this.root,

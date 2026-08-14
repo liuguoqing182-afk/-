@@ -246,17 +246,23 @@ export async function startWebhookServerFromEnvironment() {
   if (workerEnabled) {
     const appId = requiredEnvironment('FEISHU_APP_ID');
     const appSecret = requiredEnvironment('FEISHU_APP_SECRET');
+    const formalChatId = requiredEnvironment('FEISHU_CHAT_ID');
     const chatId = String(
       process.env.AM_WEBHOOK_FEISHU_CHAT_ID ??
-      requiredEnvironment('FEISHU_CHAT_ID'),
+      requiredEnvironment('FEISHU_TEST_CHAT_ID'),
     ).trim();
+    if (chatId === formalChatId) {
+      throw new Error(
+        'Webhook text reports cannot target the formal group; only the approved APP screenshot report is allowed',
+      );
+    }
     worker = new WebhookInspectionWorker({
       queue,
       monitor: new ReleaseMonitor({
         uid: requiredEnvironment('AM_INSPECT_UID'),
         dataDir: queueInfo.inspectionDataDir,
       }),
-      sendText: createFeishuTextSender({ appId, appSecret }),
+      sendText: createFeishuTextSender({ appId, appSecret, formalChatId }),
       chatId,
       settleMs: workerSettleMs,
       pollIntervalMs: process.env.AM_WEBHOOK_POLL_INTERVAL_MS ?? 1000,

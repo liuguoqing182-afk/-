@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import * as Lark from '@larksuiteoapi/node-sdk';
 
+import { assertFormalGroupTextBlocked } from './app-screenshot-formal-delivery-policy.mjs';
 import { renderFeishuInspectionSummary } from './release-inspector.mjs';
 
 function nonNegativeNumber(value, name) {
@@ -39,9 +40,13 @@ function reportHeader(event) {
   ].join('\n');
 }
 
-export function createFeishuTextSender({ appId, appSecret }) {
+export function createFeishuTextSender({ appId, appSecret, formalChatId }) {
   const client = new Lark.Client({ appId, appSecret });
   return async (chatId, text) => {
+    assertFormalGroupTextBlocked({
+      destinationChatId: chatId,
+      formalChatId,
+    });
     const response = await client.im.v1.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
