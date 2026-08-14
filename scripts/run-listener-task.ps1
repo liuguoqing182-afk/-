@@ -17,9 +17,7 @@ try {
   foreach ($name in @(
     'FEISHU_APP_ID',
     'FEISHU_APP_SECRET',
-    'FEISHU_CHAT_ID',
-    'FEISHU_TEST_CHAT_ID',
-    'AM_INSPECT_UID'
+    'FEISHU_TEST_CHAT_ID'
   )) {
     $value = [Environment]::GetEnvironmentVariable($name, 'User')
     if ([string]::IsNullOrWhiteSpace($value)) {
@@ -27,6 +25,10 @@ try {
     }
     Set-Item -LiteralPath "Env:$name" -Value $value
   }
+
+  # Keep the user's global formal-group ID for the screenshot poller, but do
+  # not expose it to this test-group-only listener process or its child.
+  Remove-Item -LiteralPath 'Env:FEISHU_CHAT_ID' -ErrorAction SilentlyContinue
 
   $existing = Get-CimInstance Win32_Process -Filter "name = 'node.exe'" |
     Where-Object { $_.CommandLine -like '*feishu-listener.mjs*' } |
@@ -37,7 +39,7 @@ try {
   }
 
   $nodePath = (Get-Command node -ErrorAction Stop).Source
-  Write-TaskLog "Starting listener with $nodePath for chat $env:FEISHU_CHAT_ID."
+  Write-TaskLog "Starting test-group-only listener with $nodePath for chat $env:FEISHU_TEST_CHAT_ID."
   $process = Start-Process `
     -FilePath $nodePath `
     -ArgumentList $listenerPath `
