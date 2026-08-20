@@ -178,6 +178,18 @@ More Style Video配置: 标签Seedance 2.0的模型排序改变,
       'MODEL_ADD',
     ],
   );
+  assert.deepEqual(result.modelNameHints, [
+    {
+      id: '1411',
+      name: 'Paw Hug',
+      source: 'PUBLISH_NOTIFICATION_ADDITION_ORDER',
+    },
+    {
+      id: '1412',
+      name: 'Film Record',
+      source: 'PUBLISH_NOTIFICATION_ADDITION_ORDER',
+    },
+  ]);
 });
 
 test('joins metadata labels and values split by an interactive card', () => {
@@ -282,4 +294,15 @@ More Style Video配置: 标签Viral Dance的模型排序改变,
       'MODEL_ADD',
     ],
   );
+});
+
+test('does not infer model names when catalog additions and i18n IDs do not align', () => {
+  const result = parsePublishNotification(`AIMirror首屏配置发布成功!
+模版修改: 新增模型: Only One
+国际化配置: 新增国际化模型: 1426,
+新增国际化模型: 1427
+操作人: user@riverolls.com
+发布环境: 从DEV发布到PRO`);
+
+  assert.deepEqual(result.modelNameHints, []);
 });

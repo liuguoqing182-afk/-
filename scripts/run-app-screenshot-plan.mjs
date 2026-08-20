@@ -39,8 +39,10 @@ import {
   uniqueVisibleModelNames,
 } from '../src/tag-model-verdict.mjs';
 import {
-  shouldRetryNewHomeNameCollectionIncomplete,
-} from '../src/new-home-retry-policy.mjs';
+  MISSING_ADDED_TAG_MODEL_RETRY_DELAY_MS,
+  shouldRetryMissingAddedTagModels,
+  shouldRetryTagNameCollectionIncomplete,
+} from '../src/tag-name-collection-retry-policy.mjs';
 import {
   APP_SCREENSHOT_REPORT_TARGETS,
   normalizeAppScreenshotReportTarget,
@@ -2384,17 +2386,39 @@ try {
         attemptRecord.verdictReason = taskOutcome.verdictReason;
         attemptRecord.evidence = taskOutcome.evidence ?? null;
 
+        const missingAddedModels =
+          taskOutcome.evidence?.missingModels ?? [];
         if (
-          shouldRetryNewHomeNameCollectionIncomplete({
+          shouldRetryMissingAddedTagModels({
             module: task.module,
-            objectName: task.objectName,
+            businessVerdict: taskOutcome.businessVerdict,
+            verdictReasonCode: taskOutcome.verdictReasonCode,
+            missingModels: missingAddedModels,
+            attempt,
+          })
+        ) {
+          log(
+            `TAG_ADDED_MODEL_RECHECK_WAIT ${task.module} | ${task.objectName} | delay=${MISSING_ADDED_TAG_MODEL_RETRY_DELAY_MS}ms`,
+          );
+          await sleep(MISSING_ADDED_TAG_MODEL_RETRY_DELAY_MS);
+          throw new Error(
+            `Added tag model missing requires one delayed app-restart recheck: ${task.module} | ${task.objectName} | ` +
+              missingAddedModels
+                .map((model) => `${model.name}(${model.id})`)
+                .join(', '),
+          );
+        }
+
+        if (
+          shouldRetryTagNameCollectionIncomplete({
+            module: task.module,
             businessVerdict: taskOutcome.businessVerdict,
             verdictReasonCode: taskOutcome.verdictReasonCode,
             attempt,
           })
         ) {
           throw new Error(
-            'New home tag name collection incomplete requires one retry: ' +
+            `Tag name collection incomplete requires one retry: ${task.module} | ${task.objectName} | ` +
               (taskOutcome.verdictReason ??
                 'tag model name collection was incomplete'),
           );

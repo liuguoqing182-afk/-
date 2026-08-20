@@ -25,6 +25,26 @@ const sender = await fs.readFile(
   new URL('../scripts/send-app-screenshot-collage-to-test-group.mjs', import.meta.url),
   'utf8',
 );
+const pipeline = await fs.readFile(
+  new URL('../src/app-screenshot-test-pipeline.mjs', import.meta.url),
+  'utf8',
+);
+const collageBuilder = await fs.readFile(
+  new URL('../scripts/build-app-screenshot-collage.py', import.meta.url),
+  'utf8',
+);
+const listener = await fs.readFile(
+  new URL('../src/feishu-listener.mjs', import.meta.url),
+  'utf8',
+);
+const webhookWorker = await fs.readFile(
+  new URL('../src/webhook-inspection-worker.mjs', import.meta.url),
+  'utf8',
+);
+const webhookServer = await fs.readFile(
+  new URL('../src/webhook-server.mjs', import.meta.url),
+  'utf8',
+);
 
 test('formal rollout reuses the shared poller runner with a 30-minute interval', () => {
   assert.match(formalRunner, /run-app-screenshot-test-poller-task\.ps1/u);
@@ -76,4 +96,19 @@ test('formal polling suppresses failure text and permits only final report deliv
     poller,
     /shouldSendAppScreenshotFailureNotification\(reportTarget\)/u,
   );
+});
+
+test('all formal-group output paths enforce the sole approved screenshot report', () => {
+  const exactTitle = 'AIMirror首屏配置发布自动化检测报告！';
+  assert.match(sender, /assertFormalAppScreenshotDelivery/u);
+  assert.match(sender, /FORMAL_APP_SCREENSHOT_MESSAGE_TYPE/u);
+  assert.match(sender, /msg_type:\s*'image'/u);
+  assert.doesNotMatch(sender, /msg_type:\s*'text'/u);
+  assert.match(pipeline, /FORMAL_APP_SCREENSHOT_REPORT_TITLE/u);
+  assert.match(collageBuilder, new RegExp(exactTitle));
+  assert.doesNotMatch(listener, /\bFEISHU_CHAT_ID\b/u);
+  assert.match(listener, /allowedReceiveId:\s*testChatId/u);
+  assert.match(webhookWorker, /assertFormalGroupTextBlocked/u);
+  assert.match(webhookServer, /FEISHU_TEST_CHAT_ID/u);
+  assert.match(webhookServer, /cannot target the formal group/u);
 });

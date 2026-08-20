@@ -42,6 +42,45 @@ async function writeJsonAtomic(filePath, value) {
   await fs.rename(temporaryPath, filePath);
 }
 
+export async function loadHistoricalModelNamesById(releaseRoot) {
+  let entries;
+  try {
+    entries = await fs.readdir(releaseRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
+  }
+
+  const historicalPlans = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const plan = await readJsonIfExists(
+        path.join(releaseRoot, entry.name, 'screenshot-plan.json'),
+      );
+      const generatedAt = Date.parse(plan?.generatedAt);
+      if (plan && Number.isFinite(generatedAt)) {
+        historicalPlans.push({ generatedAt, plan });
+      }
+    } catch {
+      // An unreadable historical plan must not block a new release.
+    }
+  }
+
+  historicalPlans.sort((left, right) => left.generatedAt - right.generatedAt);
+  const namesById = {};
+  for (const { plan } of historicalPlans) {
+    for (const task of plan.tasks ?? []) {
+      for (const assertion of task.modelAssertions ?? []) {
+        const id = String(assertion?.id ?? '').trim();
+        const name = String(assertion?.name ?? '').trim();
+        if (id && name) namesById[id] = name;
+      }
+    }
+  }
+  return namesById;
+}
+
 export function summarizeIncompleteScreenshotTasks(execution) {
   const taskResults = Array.isArray(execution?.taskResults)
     ? execution.taskResults
@@ -272,10 +311,14 @@ export class AppScreenshotTestPipeline {
             error?.message || error
           }`;
       }
+      const historicalModelNamesById = await loadHistoricalModelNamesById(
+        this.releaseRoot,
+      );
       const planningContext = {
         messageId,
         notificationPath,
         targetSnapshot,
+        historicalModelNamesById,
         reportTarget: this.reportTarget,
       };
       const plan = planAppScreenshotTasks(parsed, planningContext);

@@ -111,3 +111,57 @@ test('routes New through tag model scanning when model assertions exist', () => 
   );
   assert.match(plan.planningWarnings[0], /2998/);
 });
+
+test('uses aligned publish additions only when the target catalog omits names', () => {
+  const parsed = parsePublishNotification(`AIMirror首屏配置发布成功!
+模版修改: 新增模型: Skybound Kin,
+新增模型: Ivory Garden
+国际化配置: 新增国际化模型: 1426,
+新增国际化模型: 1427
+新首页配置: 标签Reunited的模型排序改变,
+新增了模型(所属标签Reunited)[1426, 1427]
+操作人: user@riverolls.com
+发布环境: 从DEV发布到PRO`);
+
+  const plan = planAppScreenshotTasks(parsed, {
+    targetSnapshot: {
+      groups: [],
+      models: [],
+    },
+  });
+  const task = plan.tasks.find((item) => item.objectName === 'Reunited');
+
+  assert.deepEqual(
+    task.modelAssertions.map(({ id, name }) => [id, name]),
+    [
+      ['1426', 'Skybound Kin'],
+      ['1427', 'Ivory Garden'],
+    ],
+  );
+  assert.equal(task.tagModelVerdictEnabled, true);
+  assert.deepEqual(plan.planningWarnings, []);
+});
+
+test('uses historical names only for deleted tag models', () => {
+  const parsed = parsePublishNotification(`AIMirror首屏配置发布成功!
+新首页配置: 删除了模型(所属标签New)[1443],
+新增了模型(所属标签New)[2998]
+操作人: user@riverolls.com
+发布环境: 从DEV发布到PRO`);
+
+  const plan = planAppScreenshotTasks(parsed, {
+    targetSnapshot: { groups: [], models: [] },
+    historicalModelNamesById: {
+      1443: 'Magic World',
+      2998: 'Historical Addition Name',
+    },
+  });
+  const task = plan.tasks.find((item) => item.objectName === 'New');
+
+  assert.deepEqual(task.modelAssertions, [
+    { id: '1443', name: 'Magic World', expectedState: 'ABSENT' },
+    { id: '2998', name: null, expectedState: 'PRESENT' },
+  ]);
+  assert.equal(plan.planningWarnings.length, 1);
+  assert.match(plan.planningWarnings[0], /2998/);
+});

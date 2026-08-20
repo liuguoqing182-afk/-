@@ -94,7 +94,12 @@ function targetGroup(context, module, tagName) {
   );
 }
 
-function buildTagModelAssertions(task, context, planningWarnings) {
+function buildTagModelAssertions(
+  task,
+  context,
+  planningWarnings,
+  modelNameHints = [],
+) {
   if (!Object.prototype.hasOwnProperty.call(context, 'targetSnapshot')) {
     return [];
   }
@@ -127,12 +132,30 @@ function buildTagModelAssertions(task, context, planningWarnings) {
       model.name ?? null,
     ]),
   );
-  const assertions = [...statesById.entries()].map(([id, states]) => ({
-    id,
-    name: namesById.get(id) ?? null,
-    expectedState:
-      states.size > 1 ? 'CONFLICT' : [...states][0],
-  }));
+  const hintedNamesById = new Map(
+    modelNameHints
+      .filter((hint) => hint?.id && hint?.name)
+      .map((hint) => [String(hint.id), String(hint.name).trim()]),
+  );
+  const historicalNamesById = new Map(
+    Object.entries(context.historicalModelNamesById ?? {}).map(([id, name]) => [
+      String(id),
+      String(name).trim(),
+    ]),
+  );
+  const assertions = [...statesById.entries()].map(([id, states]) => {
+    const expectedState =
+      states.size > 1 ? 'CONFLICT' : [...states][0];
+    const currentName = namesById.get(id) ?? hintedNamesById.get(id) ?? null;
+    return {
+      id,
+      name:
+        expectedState === 'ABSENT'
+          ? historicalNamesById.get(id) ?? currentName
+          : currentName,
+      expectedState,
+    };
+  });
   const unresolved = assertions.filter((assertion) => !assertion.name);
   if (unresolved.length > 0) {
     planningWarnings.push(
@@ -246,7 +269,12 @@ export function planAppScreenshotTasks(parsed, context = {}) {
       const modelAssertions =
         definition.module === '模版修改'
           ? []
-          : buildTagModelAssertions(task, context, planningWarnings);
+          : buildTagModelAssertions(
+              task,
+              context,
+              planningWarnings,
+              parsed.modelNameHints,
+            );
       const tagModelVerdictEnabled = modelAssertions.length > 0;
       const flow =
         task.flow === 'HOME_NEW' && tagModelVerdictEnabled

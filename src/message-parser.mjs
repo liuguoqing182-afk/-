@@ -89,6 +89,9 @@ const SECTION_PATTERNS = [
 
 const IGNORED_SECTIONS = new Set(['开屏设置改动', '国际化配置']);
 
+const I18N_MODEL_ADD_PATTERN =
+  /^新增国际化模型\s*[：:]\s*(\d+)$/;
+
 const INLINE_SECTION_PATTERN =
   /^[ \t]*(模[版板]修改|More Style AI Filter配置|开屏设置改动|国际化配置|新首页配置|More Style Video配置|More Style Editor配置|新手引导页配置)[ \t]*([：:])[ \t]*(\S.*)$/gim;
 
@@ -202,11 +205,14 @@ export function parsePublishNotification(input) {
     targetEnvironment: null,
     templateSections: [],
     declaredChanges: [],
+    modelNameHints: [],
     unparsedLines: [],
     errors: [],
   };
 
   let currentSection = null;
+  const addedModelNames = [];
+  const addedI18nModelIds = [];
   for (const line of lines) {
     if (/^AIMirror首屏配置发布成功[!！]?$/.test(line)) {
       result.isPublishSuccess = true;
@@ -249,14 +255,38 @@ export function parsePublishNotification(input) {
     }
     if (isSection) continue;
 
-    if (IGNORED_SECTIONS.has(currentSection)) continue;
+    if (IGNORED_SECTIONS.has(currentSection)) {
+      if (currentSection === '国际化配置') {
+        const i18nModelAdd = line.match(I18N_MODEL_ADD_PATTERN);
+        if (i18nModelAdd) addedI18nModelIds.push(i18nModelAdd[1]);
+      }
+      continue;
+    }
 
     const change = matchChange(line, currentSection);
     if (change) {
       result.declaredChanges.push(change);
+      if (
+        currentSection === '模版修改' &&
+        change.type === 'MODEL_CATALOG_ADD' &&
+        change.modelName
+      ) {
+        addedModelNames.push(change.modelName);
+      }
     } else {
       result.unparsedLines.push(line);
     }
+  }
+
+  if (
+    addedModelNames.length > 0 &&
+    addedModelNames.length === addedI18nModelIds.length
+  ) {
+    result.modelNameHints = addedI18nModelIds.map((id, index) => ({
+      id,
+      name: addedModelNames[index],
+      source: 'PUBLISH_NOTIFICATION_ADDITION_ORDER',
+    }));
   }
 
   if (!result.isPublishSuccess) result.errors.push('缺少发布成功标识');
