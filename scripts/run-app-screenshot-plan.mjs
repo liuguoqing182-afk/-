@@ -40,6 +40,11 @@ import {
 } from '../src/tag-model-verdict.mjs';
 import {
   MISSING_ADDED_TAG_MODEL_RETRY_DELAY_MS,
+  TAG_NAME_COLLECTION_RETRY_FAILURE_TYPES,
+  createTagNameCollectionRetryState,
+  currentScreenVisionAttemptMaxForTag,
+  hasAbsentTagModelAssertion,
+  markTagNameCollectionRetryUsed,
   shouldRetryMissingAddedTagModels,
   shouldRetryTagNameCollectionIncomplete,
 } from '../src/tag-name-collection-retry-policy.mjs';
@@ -695,19 +700,37 @@ async function observeTagModelScreen(
     visionRawResponse = cachedVision.visionRawResponse;
     visionReused = true;
   } else {
-    try {
-      const response = await aiQuery(context.agent, {
-        visibleModelTitlesText:
-          'Inspect only the model cards currently visible inside this AIMirror tag page. Return every exact printed model-card title, ordered top-to-bottom then left-to-right, as one plain string separated by ||. Include titles outside the release expectation. Exclude page titles, tab titles, buttons, and navigation text. Return an empty string if no model-card title is readable.',
-      });
-      visionRawResponse = compactVisionResponse(response);
-      visionModelNames = parseVisibleModelNames(response);
-      log(
-        `TAG_MODEL_VISION_RAW ${task.module} | ${task.objectName} | ${visionRawResponse}`,
-      );
-    } catch (error) {
-      visionError = error?.message || String(error);
-      log(`TAG_MODEL_VISION_UNAVAILABLE ${task.module} | ${task.objectName} | ${visionError}`);
+    const visionAttemptMax = currentScreenVisionAttemptMaxForTag({
+      modelAssertions: task.modelAssertions,
+    });
+    for (
+      let visionAttempt = 1;
+      visionAttempt <= visionAttemptMax;
+      visionAttempt += 1
+    ) {
+      try {
+        const response = await aiQuery(context.agent, {
+          visibleModelTitlesText:
+            'Inspect only the model cards currently visible inside this AIMirror tag page. Return every exact printed model-card title, ordered top-to-bottom then left-to-right, as one plain string separated by ||. Include titles outside the release expectation. Exclude page titles, tab titles, buttons, and navigation text. Return an empty string if no model-card title is readable.',
+        });
+        visionRawResponse = compactVisionResponse(response);
+        visionModelNames = parseVisibleModelNames(response);
+        visionError = null;
+        log(
+          `TAG_MODEL_VISION_RAW ${task.module} | ${task.objectName} | ${visionRawResponse}`,
+        );
+        break;
+      } catch (error) {
+        visionError = error?.message || String(error);
+        log(
+          `TAG_MODEL_VISION_UNAVAILABLE ${task.module} | ${task.objectName} | attempt=${visionAttempt}/${visionAttemptMax} | ${visionError}`,
+        );
+        if (visionAttempt < visionAttemptMax) {
+          log(
+            `TAG_MODEL_VISION_RETRY ${task.module} | ${task.objectName} | current-screen retry=${visionAttempt + 1}/${visionAttemptMax}`,
+          );
+        }
+      }
     }
     if (hierarchySignature) {
       visionCache.set(hierarchySignature, {
@@ -2317,9 +2340,25 @@ try {
       } | expected=${task.screenshotTotal}`,
     );
 
+    const tagNameCollectionRetryState =
+      createTagNameCollectionRetryState();
+    const taskHasAbsentModelAssertion = hasAbsentTagModelAssertion(
+      task.modelAssertions,
+    );
+    let taskAttemptMax = MODEL_SEARCH_EXECUTION_ATTEMPT_MAX;
+    const reserveIndependentTagRetry = (failureType, attempt) => {
+      markTagNameCollectionRetryUsed({
+        retryState: tagNameCollectionRetryState,
+        failureType,
+      });
+      if (taskHasAbsentModelAssertion && attempt >= taskAttemptMax) {
+        taskAttemptMax = attempt + 1;
+      }
+    };
+
     for (
       let attempt = 1;
-      attempt <= MODEL_SEARCH_EXECUTION_ATTEMPT_MAX;
+      attempt <= taskAttemptMax;
       attempt += 1
     ) {
       const attemptDir = path.join(
@@ -2395,8 +2434,14 @@ try {
             verdictReasonCode: taskOutcome.verdictReasonCode,
             missingModels: missingAddedModels,
             attempt,
+            modelAssertions: task.modelAssertions,
+            retryState: tagNameCollectionRetryState,
           })
         ) {
+          reserveIndependentTagRetry(
+            TAG_NAME_COLLECTION_RETRY_FAILURE_TYPES.MISSING_ADDED_MODEL,
+            attempt,
+          );
           log(
             `TAG_ADDED_MODEL_RECHECK_WAIT ${task.module} | ${task.objectName} | delay=${MISSING_ADDED_TAG_MODEL_RETRY_DELAY_MS}ms`,
           );
@@ -2415,8 +2460,14 @@ try {
             businessVerdict: taskOutcome.businessVerdict,
             verdictReasonCode: taskOutcome.verdictReasonCode,
             attempt,
+            modelAssertions: task.modelAssertions,
+            retryState: tagNameCollectionRetryState,
           })
         ) {
+          reserveIndependentTagRetry(
+            TAG_NAME_COLLECTION_RETRY_FAILURE_TYPES.INCOMPLETE,
+            attempt,
+          );
           throw new Error(
             `Tag name collection incomplete requires one retry: ${task.module} | ${task.objectName} | ` +
               (taskOutcome.verdictReason ??
@@ -2484,7 +2535,7 @@ try {
         log(
           `TASK_RETRY ${taskIndex + 1}/${plan.tasks.length} ${task.module} | ${
             task.objectName
-          } | attempt=${attempt}/${MODEL_SEARCH_EXECUTION_ATTEMPT_MAX} | ${attemptRecord.error.slice(0, 220)}`,
+          } | attempt=${attempt}/${taskAttemptMax} | ${attemptRecord.error.slice(0, 220)}`,
         );
 
         const failurePath = path.join(attemptDir, 'failure.png');
@@ -2493,7 +2544,7 @@ try {
           attemptRecord.failureScreenshot = failurePath;
         } catch {}
 
-        if (attempt === MODEL_SEARCH_EXECUTION_ATTEMPT_MAX) {
+        if (attempt === taskAttemptMax) {
           result.executionState = 'SCREENSHOT_INCOMPLETE';
           result.finalError = attemptRecord.error;
           result.businessVerdict = BUSINESS_VERDICTS.ERROR;

@@ -134,7 +134,7 @@ test('third model search force-stops and relaunches the App, then reuses the fir
   );
 
   const attemptLoop = functionSource(
-    'attempt <= MODEL_SEARCH_EXECUTION_ATTEMPT_MAX;',
+    'attempt <= taskAttemptMax;',
     '} finally {',
   );
   assert.match(
